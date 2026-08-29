@@ -20,6 +20,7 @@ var (
 
 type Tables struct {
 	client *db.Client
+	dbName string
 	tables []db.TableInfo
 	sel    int
 	err    string
@@ -34,6 +35,7 @@ func (m *Tables) Title() string { return "tables" }
 func (m *Tables) Init() tea.Cmd { return fetchCatalogCmd(m.client) }
 
 type fetchMsg struct {
+	dbName string
 	tables []db.TableInfo
 	err    error
 }
@@ -45,13 +47,18 @@ func fetchCatalogCmd(c *db.Client) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		tables, err := c.Catalog(ctx)
-		return fetchMsg{tables: tables, err: err}
+		var dbName string
+		if err == nil {
+			dbName, err = c.CurrentDatabase(ctx)
+		}
+		return fetchMsg{dbName: dbName, tables: tables, err: err}
 	}
 }
 
 func (m *Tables) Update(msg tea.Msg) (ui.Module, tea.Cmd) {
 	switch msg := msg.(type) {
 	case fetchMsg:
+		m.dbName = msg.dbName
 		m.tables = msg.tables
 		if msg.err != nil {
 			m.err = msg.err.Error()
@@ -100,12 +107,16 @@ func (m *Tables) View(width, height int) string {
 	}
 
 	title := ui.PaneTitleStyle.Render("TABLES")
+	dbTag := ""
+	if m.dbName != "" {
+		dbTag = ui.WatchStyle.Render(" " + m.dbName)
+	}
 	count := ui.HintStyle.Render(fmt.Sprintf("%d tables", len(m.tables)))
-	spacer := innerW - lipgloss.Width(title) - lipgloss.Width(count)
+	spacer := innerW - lipgloss.Width(title) - lipgloss.Width(dbTag) - lipgloss.Width(count)
 	if spacer < 0 {
 		spacer = 0
 	}
-	header := lipgloss.JoinHorizontal(lipgloss.Top, title, strings.Repeat(" ", spacer), count)
+	header := lipgloss.JoinHorizontal(lipgloss.Top, title, dbTag, strings.Repeat(" ", spacer), count)
 
 	lines := []string{header}
 
@@ -212,7 +223,7 @@ func (m *Tables) View(width, height int) string {
 		lines = append(lines, ui.ErrorStyle.Render(ui.FitWidth("error: "+m.err, innerW)))
 	}
 
-	return ui.PaneStyle.Width(width).Height(height).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return ui.PaneStyle.Width(width).Height(height - 2).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 func prettyBytes(n int64) string {

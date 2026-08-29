@@ -121,7 +121,7 @@ func (m *BufferCache) View(width, height int) string {
 		lines = append(lines, ui.ErrorStyle.Render(ui.FitWidth("error: "+m.err, innerW)))
 	}
 
-	return ui.PaneStyle.Width(width).Height(height).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return ui.PaneStyle.Width(width).Height(height - 2).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 func relationRow(r db.RelationStat, maxBuf int) string {

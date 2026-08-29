@@ -20,6 +20,7 @@ type app struct {
 	events []string
 	ext    []string
 	extOn  bool
+	dbName string
 	input  textinput.Model
 	width  int
 	height int
@@ -38,6 +39,22 @@ type extMsg struct {
 }
 
 type extTickMsg struct{}
+
+type dbNameMsg struct {
+	name string
+}
+
+func dbNameCmd(c *db.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		name, err := c.CurrentDatabase(ctx)
+		if err != nil {
+			name = ""
+		}
+		return dbNameMsg{name: name}
+	}
+}
 
 func NewApp(client *db.Client, mods []Module) tea.Model {
 	input := textinput.New()
@@ -89,9 +106,9 @@ func (a *app) toggleWatch() tea.Cmd {
 
 func (a *app) Init() tea.Cmd {
 	if len(a.mods) == 0 {
-		return nil
+		return dbNameCmd(a.client)
 	}
-	return a.mods[a.active].Init()
+	return tea.Batch(a.mods[a.active].Init(), dbNameCmd(a.client))
 }
 
 func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -134,6 +151,10 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.extOn {
 			return a, fetchExtCmd(a.client)
 		}
+		return a, nil
+
+	case dbNameMsg:
+		a.dbName = msg.name
 		return a, nil
 
 	case tea.KeyMsg:
@@ -212,7 +233,11 @@ func (a *app) View() string {
 			tabs = append(tabs, TabStyle.Render(m.Title()))
 		}
 	}
-	header := Logo() + " " + lipgloss.JoinHorizontal(lipgloss.Left, tabs...)
+	header := Logo()
+	if a.dbName != "" {
+		header += HintStyle.Render(" · " + a.dbName)
+	}
+	header += " " + lipgloss.JoinHorizontal(lipgloss.Left, tabs...)
 
 	contentH := a.height - 2
 	if contentH < 1 {
@@ -235,7 +260,7 @@ func (a *app) View() string {
 	if len(a.mods) > 0 {
 		modView = a.mods[a.active].View(leftW, contentH)
 	} else {
-		modView = PaneStyle.Width(leftW).Height(contentH).Render("")
+		modView = PaneStyle.Width(leftW).Height(contentH - 2).Render("")
 	}
 
 	innerH := contentH - 2
@@ -286,7 +311,7 @@ func (a *app) View() string {
 	for len(evLines) < innerH {
 		evLines = append(evLines, "")
 	}
-	eventsPane := PaneStyle.Width(rightW).Height(contentH).Render(lipgloss.JoinVertical(lipgloss.Left, evLines...))
+	eventsPane := PaneStyle.Width(rightW).Height(contentH - 2).Render(lipgloss.JoinVertical(lipgloss.Left, evLines...))
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, modView, " ", eventsPane)
 

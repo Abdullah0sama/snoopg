@@ -39,6 +39,12 @@ func (c *Client) Exec(ctx context.Context, query string) (rowsAffected int64, el
 	return tag.RowsAffected(), time.Since(start), nil
 }
 
+func (c *Client) CurrentDatabase(ctx context.Context) (string, error) {
+	var name string
+	err := c.pool.QueryRow(ctx, "SELECT current_database()").Scan(&name)
+	return name, err
+}
+
 func (c *Client) Close() {
 	c.pool.Close()
 }
