@@ -17,5 +17,9 @@ func FitWidth(s string, w int) string {
 	if w <= 0 {
 		return s
 	}
-	return lipgloss.NewStyle().Width(w).MaxWidth(w).Render(s)
+	runes := []rune(s)
+	if len(runes) <= w {
+		return s
+	}
+	return string(runes[:w])
 }
