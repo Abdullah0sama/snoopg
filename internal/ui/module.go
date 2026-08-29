@@ -1,0 +1,14 @@
+package ui
+
+import (
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+type RefreshMsg struct{}
+
+type Module interface {
+	Title() string
+	Init() tea.Cmd
+	Update(msg tea.Msg) (Module, tea.Cmd)
+	View(width, height int) string
+}
