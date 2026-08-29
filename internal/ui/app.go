@@ -558,7 +558,7 @@ func (a *app) resultsView() string {
 	}
 	innerW := boxW - 4
 
-	title := PaneTitleStyle.Render("results") + HintStyle.Render(" — " + truncate(a.lastQuery, innerW-12))
+	title := PaneTitleStyle.Render("results") + HintStyle.Render(" — " + truncate(strings.TrimSpace(a.lastQuery), innerW-12))
 	lines := []string{title}
 
 	if len(a.results.Columns) > 0 {
@@ -585,7 +585,7 @@ func (a *app) resultsView() string {
 		}
 		hdr := make([]string, len(a.results.Columns))
 		for i, c := range a.results.Columns {
-			hdr[i] = PaneTitleStyle.Render(padCell(c, widths[i]))
+			hdr[i] = PaneTitleStyle.Render(padCell(c, widths[i]+2))
 		}
 		lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Left, hdr...))
 		lines = append(lines, HintStyle.Render(strings.Repeat("─", innerW)))
@@ -595,9 +595,9 @@ func (a *app) resultsView() string {
 			cells := make([]string, len(widths))
 			for j := range widths {
 				if j < len(a.results.Rows[i]) {
-					cells[j] = padCell(a.results.Rows[i][j], widths[j])
+					cells[j] = padCell(a.results.Rows[i][j], widths[j]+2)
 				} else {
-					cells[j] = strings.Repeat(" ", widths[j])
+					cells[j] = strings.Repeat(" ", widths[j]+2)
 				}
 			}
 			lines = append(lines, FitWidth(lipgloss.JoinHorizontal(lipgloss.Left, cells...), innerW))

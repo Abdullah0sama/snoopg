@@ -14,13 +14,6 @@ import (
 	"snoopg/internal/ui"
 )
 
-var (
-	barFillStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-	barDirtyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	barEmptyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
-	orangeStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-)
-
 type BufferCache struct {
 	client    *db.Client
 	stats     db.CacheStats
@@ -139,13 +132,13 @@ func relationRow(r db.RelationStat, maxBuf int) string {
 			dirtyCells = filled
 		}
 	}
-	bar := barFillStyle.Render(strings.Repeat("█", filled-dirtyCells)) +
-		barDirtyStyle.Render(strings.Repeat("█", dirtyCells)) +
-		barEmptyStyle.Render(strings.Repeat("░", barLen-filled))
+	bar := ui.BarFillStyle.Render(strings.Repeat("█", filled-dirtyCells)) +
+		ui.BarDirtyStyle.Render(strings.Repeat("█", dirtyCells)) +
+		ui.BarEmptyStyle.Render(strings.Repeat("░", barLen-filled))
 
 	count := ui.HintStyle.Render(fmt.Sprintf("%d", r.Buffers))
 	if r.Dirty > 0 {
-		count += orangeStyle.Render(fmt.Sprintf(" · dirty %d", r.Dirty))
+		count += ui.WarnStyle.Render(fmt.Sprintf(" · dirty %d", r.Dirty))
 	}
 	return name + " " + bar + " " + count
 }

@@ -14,7 +14,6 @@ import (
 )
 
 var (
-	selStyle    = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("15")).Bold(true)
 	markerStyle = lipgloss.NewStyle().Bold(true)
 )
 
@@ -163,7 +162,7 @@ func (m *Tables) View(width, height int) string {
 			t := m.tables[idx]
 			name := ui.FitWidth(t.Schema+"."+t.Name, leftW)
 			if idx == m.sel {
-				name = selStyle.Width(leftW).Render(name)
+				name = ui.SelStyle.Width(leftW).Render(name)
 			}
 			leftLines = append(leftLines, name)
 		}
