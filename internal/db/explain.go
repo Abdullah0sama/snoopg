@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -41,9 +42,12 @@ func (c *Client) Explain(ctx context.Context, query string, analyze bool) (*Expl
 	if err != nil {
 		return nil, time.Since(start), err
 	}
-	var plan ExplainPlan
-	if err := json.Unmarshal(raw, &plan); err != nil {
+	var plans []ExplainPlan
+	if err := json.Unmarshal(raw, &plans); err != nil {
 		return nil, time.Since(start), err
 	}
-	return &plan, time.Since(start), nil
+	if len(plans) == 0 {
+		return nil, time.Since(start), fmt.Errorf("empty explain output")
+	}
+	return &plans[0], time.Since(start), nil
 }
