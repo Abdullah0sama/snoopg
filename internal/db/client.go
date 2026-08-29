@@ -3,9 +3,11 @@ package db
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -103,6 +105,29 @@ func (c *Client) Reconnect(ctx context.Context, dsn string, readOnly bool) error
 	return nil
 }
 
+func dsnWithDatabase(dsn, database string) string {
+	if u, err := url.Parse(dsn); err == nil && u.Path != "" && u.Path != "/" {
+		u.Path = "/" + database
+		return u.String()
+	}
+	cfg, err := pgconn.ParseConfig(dsn)
+	if err != nil {
+		return dsn
+	}
+	u := url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(cfg.User, cfg.Password),
+		Host:   fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		Path:   "/" + database,
+	}
+	q := u.Query()
+	if cfg.TLSConfig == nil {
+		q.Set("sslmode", "disable")
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
 func (c *Client) SwitchDatabase(ctx context.Context, database string) (string, error) {
 	c.mu.RLock()
 	dsn, readOnly := c.dsn, c.readOnly
@@ -116,7 +141,7 @@ func (c *Client) SwitchDatabase(ctx context.Context, database string) (string, e
 	if err != nil {
 		return "", err
 	}
-	c.swap(pool, cfg.ConnString(), readOnly)
+	c.swap(pool, dsnWithDatabase(dsn, database), readOnly)
 	return c.dsn, nil
 }
 
