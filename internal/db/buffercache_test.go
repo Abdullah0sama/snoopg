@@ -9,7 +9,7 @@ import (
 const testDSN = "postgres://postgres:postgres@localhost:5432/automation_db?sslmode=disable"
 
 func dsnForTest() string {
-	if d := os.Getenv("PGSPY_DSN"); d != "" {
+	if d := os.Getenv("SNOOPG_DSN"); d != "" {
 		return d
 	}
 	return testDSN
@@ -52,5 +52,23 @@ func TestSmoke(t *testing.T) {
 	}
 	if elapsed <= 0 {
 		t.Errorf("elapsed = %v, want > 0", elapsed)
+	}
+
+	tables, err := client.Catalog(ctx)
+	if err != nil {
+		t.Fatalf("Catalog: %v", err)
+	}
+	if len(tables) == 0 {
+		t.Error("Catalog returned 0 tables")
+	}
+	found := false
+	for _, tb := range tables {
+		if tb.Name != "" && tb.SizeBytes >= 0 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("no table with non-empty Name and SizeBytes >= 0")
 	}
 }

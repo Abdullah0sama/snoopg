@@ -1,4 +1,4 @@
-# pgspy
+# snoopg
 
 A terminal UI for inspecting live PostgreSQL instances — built as a hands-on
 companion to studying PostgreSQL internals (buffer cache, WAL, locks, MVCC,
@@ -10,11 +10,13 @@ locks, and page structures respond in real time.
 
 ## Concept
 
-pgspy is a shell with pluggable modules. Each module visualizes one subsystem
+snoopg is a shell with pluggable modules. Each module visualizes one subsystem
 of a live PostgreSQL server:
 
 - **Buffer cache** — live view of `shared_buffers` via `pg_buffercache`:
   pages per relation, dirty pages, pins, usage counts.
+- **Tables** — table/index/FK catalog browser (size-sorted table list,
+  per-table index details).
 - **Heap pages** *(planned)* — decode raw 8KB pages: page header, line
   pointers, tuple headers, MVCC fields (`xmin`/`xmax`, infomask).
 - **WAL** *(planned)* — write-ahead log activity: LSN movement, WAL
@@ -37,8 +39,8 @@ query runs.
 The load generator and most demos run against a dedicated lab database:
 
 ```sh
-psql -h localhost -U postgres -c 'CREATE DATABASE pgspy_lab;'
-psql -h localhost -U postgres -d pgspy_lab <<'SQL'
+psql -h localhost -U postgres -c 'CREATE DATABASE snoopg_lab;'
+psql -h localhost -U postgres -d snoopg_lab <<'SQL'
 CREATE TABLE big (id int PRIMARY KEY, payload text);
 INSERT INTO big SELECT g, repeat(md5(g::text), 8) FROM generate_series(1, 2000000) g;
 
@@ -54,16 +56,16 @@ SQL
 
 ## Load generator
 
-`cmd/pgspy-load` generates query traffic against the lab database so the TUI
+`cmd/snoopg-load` generates query traffic against the lab database so the TUI
 has something to react to:
 
 ```sh
-go run ./cmd/pgspy-load -scenario seqscan
-go run ./cmd/pgspy-load -scenario oltp -count 200 -sleep 50
+go run ./cmd/snoopg-load -scenario seqscan
+go run ./cmd/snoopg-load -scenario oltp -count 200 -sleep 50
 ```
 
-Flags: `-dsn` (default `postgres://postgres:postgres@localhost:5432/pgspy_lab?sslmode=disable`,
-env override `PGSPY_DSN`), `-scenario`, `-count` (default 5 for seqscan/vacuum/burst,
+Flags: `-dsn` (default `postgres://postgres:postgres@localhost:5432/snoopg_lab?sslmode=disable`,
+env override `SNOOPG_DSN`), `-scenario`, `-count` (default 5 for seqscan/vacuum/burst,
 100 otherwise), `-sleep` (milliseconds between operations).
 
 | Scenario | What it does | What to watch in the TUI |
@@ -78,18 +80,18 @@ env override `PGSPY_DSN`), `-scenario`, `-count` (default 5 for seqscan/vacuum/b
 Two-pane tmux workflow: TUI in one pane, generator in the other:
 
 ```sh
-tmux new-session -s pgspy
+tmux new-session -s snoopg
 # left pane
 go run .
 # ctrl+b % — right pane
-go run ./cmd/pgspy-load -scenario burst -count 50 -sleep 200
+go run ./cmd/snoopg-load -scenario burst -count 50 -sleep 200
 ```
 
 ## Usage
 
 ```sh
 go run .                       # connects to the default local DSN
-PGSPY_DSN='postgres://user:pass@host:5432/db' go run .
+SNOOPG_DSN='postgres://user:pass@host:5432/db' go run .
 ```
 
 Default DSN: `postgres://postgres:postgres@localhost:5432/automation_db?sslmode=disable`
@@ -99,12 +101,13 @@ Default DSN: `postgres://postgres:postgres@localhost:5432/automation_db?sslmode=
 | `tab` / `shift+tab` | cycle modules |
 | `1`–`9` | jump to module |
 | `enter` | run query from the query bar |
+| `esc` | toggle between typing in the query bar and browsing the active module |
 | `q` / `ctrl+c` | quit |
 
 ## Layout
 
 ```
-pgspy [buffer cache] [wal] [locks] ...     tab bar (one module each)
+snoopg [buffer cache] [wal] [locks] ...     tab bar (one module each)
 +------------------------------+-----------+
 | active module view           | EVENTS    |  query log, module-driven
 |                              |           |

@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const defaultDSN = "postgres://postgres:postgres@localhost:5432/pgspy_lab?sslmode=disable"
+const defaultDSN = "postgres://postgres:postgres@localhost:5432/snoopg_lab?sslmode=disable"
 
 const opTimeout = 60 * time.Second
 
@@ -127,7 +127,7 @@ func main() {
 	switch *scenario {
 	case "seqscan", "updates", "oltp", "indexscan", "vacuum", "checkpoint", "burst":
 	default:
-		fmt.Fprintf(os.Stderr, "pgspy-load: unknown scenario: %s\n", *scenario)
+		fmt.Fprintf(os.Stderr, "snoopg-load: unknown scenario: %s\n", *scenario)
 		os.Exit(1)
 	}
 
@@ -138,7 +138,7 @@ func main() {
 		}
 	}
 
-	dsn := os.Getenv("PGSPY_DSN")
+	dsn := os.Getenv("SNOOPG_DSN")
 	if dsn == "" {
 		dsn = *dsnFlag
 	}
@@ -148,18 +148,18 @@ func main() {
 
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "pgspy-load: %v\n", err)
+		fmt.Fprintf(os.Stderr, "snoopg-load: %v\n", err)
 		os.Exit(1)
 	}
 	cfg.MaxConns = 4
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "pgspy-load: %v\n", err)
+		fmt.Fprintf(os.Stderr, "snoopg-load: %v\n", err)
 		os.Exit(1)
 	}
 	defer pool.Close()
 	if err := pool.Ping(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "pgspy-load: %v\n", err)
+		fmt.Fprintf(os.Stderr, "snoopg-load: %v\n", err)
 		os.Exit(1)
 	}
 

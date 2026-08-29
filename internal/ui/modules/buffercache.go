@@ -10,8 +10,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"pgspy/internal/db"
-	"pgspy/internal/ui"
+	"snoopg/internal/db"
+	"snoopg/internal/ui"
 )
 
 var (

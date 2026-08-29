@@ -1,4 +1,4 @@
-module pgspy
+module snoopg
 
 go 1.27.0
 

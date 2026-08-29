@@ -10,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"pgspy/internal/db"
+	"snoopg/internal/db"
 )
 
 type app struct {
@@ -112,13 +112,19 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, execQueryCmd(a.client, query)
 			}
 			return a, nil
+		case "esc":
+			if a.input.Focused() {
+				a.input.Blur()
+			} else {
+				a.input.Focus()
+			}
+			return a, nil
 		default:
 			if a.input.Focused() {
 				var cmd tea.Cmd
 				a.input, cmd = a.input.Update(msg)
 				return a, cmd
 			}
-			return a, nil
 		}
 	}
 
@@ -143,7 +149,7 @@ func (a *app) View() string {
 			tabs = append(tabs, TabStyle.Render(m.Title()))
 		}
 	}
-	header := HeaderStyle.Render("pgspy") + " " + lipgloss.JoinHorizontal(lipgloss.Left, tabs...)
+	header := HeaderStyle.Render("snoopg") + " " + lipgloss.JoinHorizontal(lipgloss.Left, tabs...)
 
 	contentH := a.height - 2
 	if contentH < 1 {
@@ -196,11 +202,16 @@ func (a *app) View() string {
 
 	content := lipgloss.JoinHorizontal(lipgloss.Top, modView, " ", eventsPane)
 
-	a.input.Width = a.width - 8
-	if a.input.Width < 1 {
-		a.input.Width = 1
+	var inputLine string
+	if a.input.Focused() {
+		a.input.Width = a.width - 8
+		if a.input.Width < 1 {
+			a.input.Width = 1
+		}
+		inputLine = PromptStyle.Render("query: ") + a.input.View()
+	} else {
+		inputLine = HintStyle.Render("esc: focus query · j/k: select table · tab: switch module")
 	}
-	inputLine := PromptStyle.Render("query: ") + a.input.View()
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, content, inputLine)
 }
