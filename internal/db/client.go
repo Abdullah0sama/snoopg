@@ -37,16 +37,16 @@ type Client struct {
 	readOnly bool
 }
 
-func withReadOnly(dsn string, readOnly bool) (string, error) {
-	if !readOnly {
-		return dsn, nil
-	}
+func buildPoolConfig(dsn string, readOnly bool) (*pgxpool.Config, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	cfg.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
-	return cfg.ConnString(), nil
+	if readOnly {
+		cfg.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
+	}
+	cfg.MaxConns = 4
+	return cfg, nil
 }
 
 func New(ctx context.Context, dsn string) (*Client, error) {
@@ -62,15 +62,10 @@ func NewWithMode(ctx context.Context, dsn string, readOnly bool) (*Client, error
 }
 
 func (c *Client) Reconnect(ctx context.Context, dsn string, readOnly bool) error {
-	dsn, err := withReadOnly(dsn, readOnly)
+	cfg, err := buildPoolConfig(dsn, readOnly)
 	if err != nil {
 		return err
 	}
-	cfg, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		return err
-	}
-	cfg.MaxConns = 4
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return err
@@ -95,15 +90,28 @@ func (c *Client) SwitchDatabase(ctx context.Context, database string) (string, e
 	c.mu.RLock()
 	dsn, readOnly := c.dsn, c.readOnly
 	c.mu.RUnlock()
-	cfg, err := pgxpool.ParseConfig(dsn)
+	cfg, err := buildPoolConfig(dsn, readOnly)
 	if err != nil {
 		return "", err
 	}
 	cfg.ConnConfig.Database = database
-	if err := c.Reconnect(ctx, cfg.ConnString(), readOnly); err != nil {
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
 		return "", err
 	}
-	return c.DSN(), nil
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return "", err
+	}
+	c.mu.Lock()
+	old := c.pool
+	c.pool = pool
+	c.dsn = cfg.ConnString()
+	c.mu.Unlock()
+	if old != nil {
+		old.Close()
+	}
+	return c.dsn, nil
 }
 
 func (c *Client) Info() (dsn string, readOnly bool) {

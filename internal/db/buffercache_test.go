@@ -8,6 +8,8 @@ import (
 
 const testDSN = "postgres://postgres:postgres@localhost:5432/automation_db?sslmode=disable"
 
+const labDSN = "postgres://postgres:postgres@localhost:5433/snoopg_lab?sslmode=disable"
+
 func dsnForTest() string {
 	if d := os.Getenv("SNOOPG_DSN"); d != "" {
 		return d
@@ -70,5 +72,38 @@ func TestSmoke(t *testing.T) {
 	}
 	if !found {
 		t.Error("no table with non-empty Name and SizeBytes >= 0")
+	}
+}
+
+func TestReadOnlyEnforcement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ctx := context.Background()
+	client, err := NewWithMode(ctx, labDSN, true)
+	if err != nil {
+		t.Skipf("skipping: cannot connect to lab postgres: %v", err)
+	}
+	defer client.Close()
+
+	_, _, err = client.Exec(ctx, "CREATE TABLE ro_probe(i int)")
+	if err == nil {
+		_, _, _ = client.Exec(ctx, "DROP TABLE ro_probe")
+		t.Fatal("write succeeded in read-only mode — enforcement is broken")
+	}
+	t.Logf("write correctly rejected: %v", err)
+
+	dbs, err := client.ListDatabases(ctx)
+	if err != nil {
+		t.Fatalf("ListDatabases: %v", err)
+	}
+	found := false
+	for _, d := range dbs {
+		if d == "snoopg_lab" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("ListDatabases = %v, missing snoopg_lab", dbs)
 	}
 }
