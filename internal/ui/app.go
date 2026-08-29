@@ -64,7 +64,11 @@ func fetchExtCmd(c *db.Client) tea.Cmd {
 		acts, err := c.Activity(ctx)
 		lines := make([]string, 0, len(acts))
 		for _, act := range acts {
-			line := fmt.Sprintf("pid=%-6d %-12s %s (%.1fs)", act.PID, act.Database, truncate(act.Query, 40), act.Seconds)
+			secs := act.Seconds
+			if secs < 0 {
+				secs = 0
+			}
+			line := fmt.Sprintf("pid=%-6d %-12s %s (%.1fs)", act.PID, act.Database, truncate(act.Query, 40), secs)
 			if act.WaitEvent != "" {
 				line += " · " + act.WaitEvent
 			}
