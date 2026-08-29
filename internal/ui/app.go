@@ -265,11 +265,19 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case "enter":
-			if strings.TrimSpace(a.input.Value()) != "" {
-				query := a.input.Value()
-				a.input.SetValue("")
-				a.input.ShowSuggestions = false
-				return a, queryCmd(a.client, query)
+			if a.input.Focused() {
+				if strings.TrimSpace(a.input.Value()) != "" {
+					query := a.input.Value()
+					a.input.SetValue("")
+					a.input.ShowSuggestions = false
+					return a, queryCmd(a.client, query)
+				}
+				return a, nil
+			}
+			if len(a.mods) > 0 {
+				m, cmd := a.mods[a.active].Update(msg)
+				a.mods[a.active] = m
+				return a, cmd
 			}
 			return a, nil
 		case "esc":
