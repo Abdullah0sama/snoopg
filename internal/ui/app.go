@@ -138,7 +138,7 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c":
+		case "ctrl+c":
 			return a, tea.Quit
 		case "tab":
 			if len(a.mods) > 0 {
@@ -149,13 +149,6 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "shift+tab":
 			if len(a.mods) > 0 {
 				a.active = (a.active - 1 + len(a.mods)) % len(a.mods)
-				return a, a.mods[a.active].Init()
-			}
-			return a, nil
-		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-			idx := int(msg.String()[0] - '1')
-			if idx < len(a.mods) {
-				a.active = idx
 				return a, a.mods[a.active].Init()
 			}
 			return a, nil
@@ -181,8 +174,19 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.input, cmd = a.input.Update(msg)
 				return a, cmd
 			}
-			if msg.String() == "e" {
+			switch msg.String() {
+			case "q":
+				return a, tea.Quit
+			case "e":
 				return a, a.toggleWatch()
+			}
+			if d := msg.String(); len(d) == 1 && d[0] >= '1' && d[0] <= '9' {
+				idx := int(d[0] - '1')
+				if idx < len(a.mods) {
+					a.active = idx
+					return a, a.mods[a.active].Init()
+				}
+				return a, nil
 			}
 		}
 	}
@@ -294,7 +298,7 @@ func (a *app) View() string {
 		}
 		inputLine = PromptStyle.Render("query: ") + a.input.View()
 	} else {
-		inputLine = HintStyle.Render("esc: focus query · j/k: select table · e: watch queries · tab: module")
+		inputLine = HintStyle.Render("esc: focus query · j/k: select table · e: watch · q: quit · tab: module")
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, content, inputLine)
