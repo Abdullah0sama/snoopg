@@ -16,7 +16,7 @@ func (c *Client) Activity(ctx context.Context) ([]Activity, error) {
 	rows, err := c.current().Query(ctx, `
 		SELECT pid, datname, COALESCE(wait_event_type || '/' || wait_event, ''),
 		       EXTRACT(EPOCH FROM now() - query_start),
-		       LEFT(regexp_replace(query, '\s+', ' ', 'g'), 60)
+		       regexp_replace(query, '\s+', ' ', 'g')
 		FROM pg_stat_activity
 		WHERE pid <> pg_backend_pid()
 		  AND state = 'active'

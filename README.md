@@ -17,6 +17,7 @@ of a live PostgreSQL server:
   pages per relation, dirty pages, pins, usage counts.
 - **Tables** — table/index/FK catalog browser (size-sorted table list,
   per-table index details).
+- **Plans** — EXPLAIN (ANALYZE, BUFFERS) trees with cost-share highlighting (ctrl+e explain mode).
 - **Connections** — saved profiles with add/edit/delete, live switching
   between servers and databases, per-profile read-only enforcement.
 - **Heap pages** *(planned)* — decode raw 8KB pages: page header, line
@@ -24,7 +25,6 @@ of a live PostgreSQL server:
 - **WAL** *(planned)* — write-ahead log activity: LSN movement, WAL
   generation rate, checkpoints, and eventually raw WAL record parsing.
 - **Locks** *(planned)* — blocking chains from `pg_locks` and wait events.
-- **Query plans** *(planned)* — `EXPLAIN` trees with cost highlighting.
 
 Switch between modules with `tab` / `shift+tab` or `1`–`9`. The query bar and
 event log are shared across all modules; each module refreshes itself after a
@@ -143,6 +143,7 @@ go run .    # saved profile, SNOOPG_DSN, or -dsn; connection form if none
 | `tab` / `shift+tab` | cycle modules (autocomplete when typing in the query bar) |
 | `1`–`9` | jump to module |
 | `enter` | run query from the query bar |
+| `ctrl+e` | toggle explain mode (enter runs EXPLAIN ANALYZE, plan opens in the plans module) |
 | `up` / `down` | query history (previous/next) |
 | `esc` | toggle between typing in the query bar and browsing the active module |
 | `r` | reopen last query result |

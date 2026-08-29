@@ -18,9 +18,12 @@ type app struct {
 	client       *db.Client
 	mods         []Module
 	active       int
-	events       []string
-	ext          []string
-	extOn        bool
+	events      []string
+	ext         []string
+	extActs     []db.Activity
+	extOn       bool
+	watchSel    int
+	watchSelect bool
 	connLabel    string
 	suggestWords []string
 	hist         []string
@@ -32,6 +35,7 @@ type app struct {
 	input        textinput.Model
 	width        int
 	height       int
+	explainMode  bool
 }
 
 func labelFor(dsn string) string {
@@ -56,6 +60,7 @@ type completionMsg struct {
 
 type extMsg struct {
 	lines []string
+	acts  []db.Activity
 	err   error
 }
 
@@ -99,6 +104,19 @@ func queryCmd(c *db.Client, query string) tea.Cmd {
 	}
 }
 
+func explainCmd(c *db.Client, query string, analyzed bool) tea.Cmd {
+	return func() tea.Msg {
+		plan, elapsed, err := c.Explain(context.Background(), query, analyzed)
+		return ExplainResultMsg{
+			Query:    query,
+			Plan:     plan,
+			Elapsed:  elapsed,
+			Analyzed: analyzed,
+			Err:      err,
+		}
+	}
+}
+
 func fetchExtCmd(c *db.Client) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -116,7 +134,7 @@ func fetchExtCmd(c *db.Client) tea.Cmd {
 			}
 			lines = append(lines, line)
 		}
-		return extMsg{lines: lines, err: err}
+		return extMsg{lines: lines, acts: acts, err: err}
 	}
 }
 
@@ -124,6 +142,8 @@ func (a *app) toggleWatch() tea.Cmd {
 	a.extOn = !a.extOn
 	if !a.extOn {
 		a.ext = nil
+		a.extActs = nil
+		a.watchSelect = false
 		return nil
 	}
 	return fetchExtCmd(a.client)
@@ -207,6 +227,29 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case ExplainResultMsg:
+		ts := time.Now().Format("15:04:05")
+		q := truncate(msg.Query, 50)
+		var line string
+		if msg.Err != nil {
+			line = fmt.Sprintf("%s %s — ERROR: %s", ts, q, truncate(msg.Err.Error(), 80))
+		} else {
+			line = fmt.Sprintf("%s explain %s — %.2fs", ts, q, msg.Elapsed.Seconds())
+		}
+		a.events = append(a.events, line)
+		if len(a.events) > 200 {
+			a.events = a.events[len(a.events)-200:]
+		}
+		for i, mod := range a.mods {
+			if mod.Title() == "plans" {
+				a.active = i
+				m, cmd := mod.Update(msg)
+				a.mods[i] = m
+				return a, cmd
+			}
+		}
+		return a, nil
+
 	case completionMsg:
 		a.suggestWords = msg.words
 		return a, nil
@@ -214,6 +257,13 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case extMsg:
 		if msg.err == nil {
 			a.ext = msg.lines
+			a.extActs = msg.acts
+			if a.watchSel > len(a.extActs)-1 {
+				a.watchSel = len(a.extActs) - 1
+			}
+			if a.watchSel < 0 {
+				a.watchSel = 0
+			}
 		}
 		if a.extOn {
 			return a, tea.Tick(time.Second, func(time.Time) tea.Msg { return extTickMsg{} })
@@ -247,6 +297,14 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			return a, tea.Quit
+		case "ctrl+e":
+			a.explainMode = !a.explainMode
+			if a.explainMode {
+				a.input.Placeholder = "EXPLAIN ANALYZE will run — type a query"
+			} else {
+				a.input.Placeholder = "type a query, enter to run"
+			}
+			return a, nil
 		case "tab":
 			if a.input.Focused() {
 				var cmd tea.Cmd
@@ -270,9 +328,17 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					query := a.input.Value()
 					a.input.SetValue("")
 					a.input.ShowSuggestions = false
+					if a.explainMode {
+						return a, explainCmd(a.client, query, true)
+					}
 					return a, queryCmd(a.client, query)
 				}
 				return a, nil
+			}
+			if a.watchSelect && len(a.extActs) > 0 {
+				act := a.extActs[a.watchSel]
+				a.watchSelect = false
+				return a, explainCmd(a.client, act.Query, false)
 			}
 			if len(a.mods) > 0 {
 				m, cmd := a.mods[a.active].Update(msg)
@@ -281,6 +347,10 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case "esc":
+			if a.watchSelect {
+				a.watchSelect = false
+				return a, nil
+			}
 			if a.input.Focused() {
 				a.input.Blur()
 			} else {
@@ -290,6 +360,12 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "f2":
 			return a, a.toggleWatch()
 		case "up":
+			if !a.input.Focused() && a.watchSelect {
+				if a.watchSel > 0 {
+					a.watchSel--
+				}
+				return a, nil
+			}
 			if a.input.Focused() {
 				if a.input.ShowSuggestions {
 					var cmd tea.Cmd
@@ -301,6 +377,12 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 		case "down":
+			if !a.input.Focused() && a.watchSelect {
+				if a.watchSel < len(a.extActs)-1 {
+					a.watchSel++
+				}
+				return a, nil
+			}
 			if a.input.Focused() {
 				if a.input.ShowSuggestions {
 					var cmd tea.Cmd
@@ -318,11 +400,32 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.updateSuggestions()
 				return a, cmd
 			}
+			if a.watchSelect {
+				switch msg.String() {
+				case "j":
+					if a.watchSel < len(a.extActs)-1 {
+						a.watchSel++
+					}
+				case "k":
+					if a.watchSel > 0 {
+						a.watchSel--
+					}
+				}
+				return a, nil
+			}
 			switch msg.String() {
 			case "q":
 				return a, tea.Quit
 			case "e":
 				return a, a.toggleWatch()
+			case "w":
+				if a.extOn && len(a.extActs) > 0 {
+					a.watchSelect = true
+					if a.watchSel > len(a.extActs)-1 {
+						a.watchSel = len(a.extActs) - 1
+					}
+				}
+				return a, nil
 			case "r":
 				if a.lastQuery != "" {
 					a.resOffset = 0
@@ -410,7 +513,10 @@ func (a *app) View() string {
 		rightInnerW = 1
 	}
 	title := PaneTitleStyle.Render("EVENTS") + " "
-	if a.extOn {
+	if a.watchSelect {
+		title += WatchStyle.Render("select")
+		title += HintStyle.Render(" · enter: explain · esc: back")
+	} else if a.extOn {
 		title += WatchStyle.Render("watch on")
 	} else {
 		title += HintStyle.Render("watch off (f2)")
@@ -431,7 +537,12 @@ func (a *app) View() string {
 			extRows = extCap
 		}
 		for i := 0; i < extRows; i++ {
-			evLines = append(evLines, WatchStyle.Render(FitWidth(a.ext[i], rightInnerW)))
+			line := FitWidth(a.ext[i], rightInnerW)
+			if a.watchSelect && i == a.watchSel {
+				evLines = append(evLines, SelStyle.Render(line))
+			} else {
+				evLines = append(evLines, WatchStyle.Render(line))
+			}
 		}
 		evLines = append(evLines, HintStyle.Render(strings.Repeat("─", rightInnerW)))
 		localCount = evCount - extRows - 1
@@ -459,9 +570,13 @@ func (a *app) View() string {
 		if a.input.Width < 1 {
 			a.input.Width = 1
 		}
-		inputLine = PromptStyle.Render("query: ") + a.input.View()
+		prompt := "query: "
+		if a.explainMode {
+			prompt = "explain: "
+		}
+		inputLine = PromptStyle.Render(prompt) + a.input.View()
 	} else {
-		inputLine = HintStyle.Render("esc: focus query · j/k: select · e: watch · r: results · q: quit · tab: module")
+		inputLine = HintStyle.Render("esc: focus query · j/k: select · e: watch · w: pick query · r: results · q: quit")
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, content, inputLine)
@@ -579,7 +694,7 @@ func (a *app) resultsView() string {
 	}
 	innerW := boxW - 4
 
-	title := PaneTitleStyle.Render("results") + HintStyle.Render(" — " + truncate(strings.TrimSpace(a.lastQuery), innerW-12))
+	title := PaneTitleStyle.Render("results") + HintStyle.Render(" — "+truncate(strings.TrimSpace(a.lastQuery), innerW-12))
 	lines := []string{title}
 
 	if len(a.results.Columns) > 0 {

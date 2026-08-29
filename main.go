@@ -78,6 +78,7 @@ func main() {
 		modules.NewBufferCache(client),
 		modules.NewTables(client),
 		modules.NewConnections(client),
+		modules.NewPlans(client),
 	}
 	p := tea.NewProgram(ui.NewApp(client, mods), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

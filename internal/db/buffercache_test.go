@@ -75,6 +75,33 @@ func TestSmoke(t *testing.T) {
 	}
 }
 
+func TestExplain(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+	client, err := New(ctx, dsnForTest())
+	if err != nil {
+		t.Skipf("skipping: cannot connect to postgres: %v", err)
+	}
+	defer client.Close()
+
+	plan, elapsed, err := client.Explain(ctx, "SELECT count(*) FROM pg_class", true)
+	if err != nil {
+		t.Fatalf("Explain: %v", err)
+	}
+	if elapsed <= 0 {
+		t.Errorf("elapsed = %v, want > 0", elapsed)
+	}
+	if plan.Plan.NodeType == "" {
+		t.Error("plan.Plan.NodeType is empty")
+	}
+	if plan.Plan.TotalCost < 0 {
+		t.Errorf("plan.Plan.TotalCost = %f, want >= 0", plan.Plan.TotalCost)
+	}
+}
+
 func TestReadOnlyEnforcement(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
