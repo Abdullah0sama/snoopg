@@ -62,6 +62,14 @@ func runOp(ctx context.Context, pool *pgxpool.Pool, scenario string) (string, er
 		}
 		return fmt.Sprintf("[oltp] payload=%s in %s", head(payload, 8), dur(time.Since(start))), nil
 
+	case "indexscan":
+		id := rand.IntN(2000000) + 1
+		var payload string
+		if err := pool.QueryRow(opCtx, "SELECT payload FROM big WHERE id = $1", id).Scan(&payload); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("[indexscan] id=%d payload=%s in %s", id, head(payload, 8), dur(time.Since(start))), nil
+
 	case "vacuum":
 		if _, err := pool.Exec(opCtx, "VACUUM (ANALYZE) big"); err != nil {
 			return "", err
@@ -111,13 +119,13 @@ func runOp(ctx context.Context, pool *pgxpool.Pool, scenario string) (string, er
 
 func main() {
 	dsnFlag := flag.String("dsn", defaultDSN, "PostgreSQL DSN")
-	scenario := flag.String("scenario", "seqscan", "seqscan|updates|oltp|vacuum|checkpoint|burst")
+	scenario := flag.String("scenario", "seqscan", "seqscan|updates|oltp|indexscan|vacuum|checkpoint|burst")
 	count := flag.Int("count", -1, "number of operations (default depends on scenario)")
 	sleepMS := flag.Int("sleep", 0, "milliseconds to sleep between operations")
 	flag.Parse()
 
 	switch *scenario {
-	case "seqscan", "updates", "oltp", "vacuum", "checkpoint", "burst":
+	case "seqscan", "updates", "oltp", "indexscan", "vacuum", "checkpoint", "burst":
 	default:
 		fmt.Fprintf(os.Stderr, "pgspy-load: unknown scenario: %s\n", *scenario)
 		os.Exit(1)
