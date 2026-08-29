@@ -125,7 +125,7 @@ func (m *BufferCache) View(width, height int) string {
 }
 
 func relationRow(r db.RelationStat, maxBuf int) string {
-	name := lipgloss.NewStyle().Width(18).Align(lipgloss.Right).Render(r.Relation)
+	name := lipgloss.NewStyle().Width(18).Align(lipgloss.Right).Render(ui.FitWidth(r.Relation, 18))
 
 	const barLen = 30
 	filled := 0
