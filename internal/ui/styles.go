@@ -5,7 +5,7 @@ import "github.com/charmbracelet/lipgloss"
 var (
 	HeaderStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("208"))
 	LogoStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("208"))
-	LogoBlockStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("208"))
+	LogoBlockStyle = lipgloss.NewStyle().Bold(true).Italic(true).Foreground(lipgloss.Color("208"))
 	TabStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("241")).Padding(0, 1)
 	TabActiveStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(lipgloss.Color("208")).Padding(0, 1)
 	HintStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
