@@ -15,9 +15,9 @@ import (
 )
 
 var (
-	barFillStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	barFillStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("111"))
 	barDirtyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	barEmptyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+	barEmptyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("236"))
 	orangeStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 )
 
