@@ -16,19 +16,19 @@ import (
 	"snoopg/internal/ui/modules"
 )
 
-func resolveDSN(dsnFlag string) string {
+func resolveProfile(dsnFlag string) (dsn string, readOnly bool) {
 	if dsn := os.Getenv("SNOOPG_DSN"); dsn != "" {
-		return dsn
+		return dsn, false
 	}
 	if dsnFlag != "" {
-		return dsnFlag
+		return dsnFlag, false
 	}
 	if cfg, err := config.Load(); err == nil {
-		if dsn := cfg.Profiles[cfg.Last]; dsn != "" {
-			return dsn
+		if p, ok := cfg.Profiles[cfg.Last]; ok && p.DSN != "" {
+			return p.DSN, p.ReadOnly
 		}
 	}
-	return ""
+	return "", false
 }
 
 func profileName(dsn string) string {
@@ -45,7 +45,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	dsn := resolveDSN(*dsnFlag)
+	dsn, readOnly := resolveProfile(*dsnFlag)
 	if dsn == "" {
 		var err error
 		var save bool
@@ -59,7 +59,7 @@ func main() {
 		}
 		if save {
 			name := profileName(dsn)
-			if err := config.Save(name, dsn); err != nil {
+			if err := config.Save(name, dsn, false); err != nil {
 				fmt.Fprintf(os.Stderr, "snoopg: could not save connection: %v\n", err)
 			} else {
 				fmt.Printf("saved connection %q — next launch uses it automatically\n", name)
@@ -67,7 +67,7 @@ func main() {
 		}
 	}
 
-	client, err := db.New(ctx, dsn)
+	client, err := db.NewWithMode(ctx, dsn, readOnly)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "snoopg: %v\n", err)
 		os.Exit(1)
@@ -77,6 +77,7 @@ func main() {
 	mods := []ui.Module{
 		modules.NewBufferCache(client),
 		modules.NewTables(client),
+		modules.NewConnections(client),
 	}
 	p := tea.NewProgram(ui.NewApp(client, mods), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

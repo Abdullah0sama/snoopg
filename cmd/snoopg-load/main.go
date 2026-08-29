@@ -144,7 +144,9 @@ func main() {
 	}
 	if dsn == "" {
 		if cfg, err := config.Load(); err == nil {
-			dsn = cfg.Profiles[cfg.Last]
+			if p, ok := cfg.Profiles[cfg.Last]; ok {
+				dsn = p.DSN
+			}
 		}
 	}
 	if dsn == "" {

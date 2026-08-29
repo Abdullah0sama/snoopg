@@ -22,7 +22,7 @@ type TableInfo struct {
 }
 
 func (c *Client) Catalog(ctx context.Context) ([]TableInfo, error) {
-	rows, err := c.pool.Query(ctx, `
+	rows, err := c.current().Query(ctx, `
 		SELECT n.nspname, c.relname, pg_total_relation_size(c.oid)
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -54,7 +54,7 @@ func (c *Client) Catalog(ctx context.Context) ([]TableInfo, error) {
 		return []TableInfo{}, nil
 	}
 
-	rows, err = c.pool.Query(ctx, `
+	rows, err = c.current().Query(ctx, `
 		SELECT n.nspname, c.relname, ic.relname, ix.indisunique, ix.indisprimary,
 		       COALESCE(string_agg(a.attname, ', ' ORDER BY ord.n), ''),
 		       pg_relation_size(ix.indexrelid)
@@ -92,7 +92,7 @@ func (c *Client) Catalog(ctx context.Context) ([]TableInfo, error) {
 	}
 	rows.Close()
 
-	rows, err = c.pool.Query(ctx, `
+	rows, err = c.current().Query(ctx, `
 		SELECT rn.nspname, rc.relname, fn.nspname, fc.relname
 		FROM pg_constraint co
 		JOIN pg_class rc ON rc.oid = co.conrelid

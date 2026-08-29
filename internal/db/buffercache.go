@@ -21,7 +21,7 @@ type CacheStats struct {
 
 func (c *Client) CacheStats(ctx context.Context) (CacheStats, error) {
 	var s CacheStats
-	err := c.pool.QueryRow(ctx, `
+	err := c.current().QueryRow(ctx, `
 		SELECT count(*),
 		       count(*) FILTER (WHERE isdirty),
 		       count(*) FILTER (WHERE pinning_backends > 0),
@@ -34,7 +34,7 @@ func (c *Client) CacheStats(ctx context.Context) (CacheStats, error) {
 }
 
 func (c *Client) RelationStats(ctx context.Context) ([]RelationStat, error) {
-	rows, err := c.pool.Query(ctx, `
+	rows, err := c.current().Query(ctx, `
 		SELECT c.relname, count(*),
 		       count(*) FILTER (WHERE b.isdirty),
 		       count(*) FILTER (WHERE b.pinning_backends > 0),

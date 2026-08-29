@@ -17,6 +17,8 @@ of a live PostgreSQL server:
   pages per relation, dirty pages, pins, usage counts.
 - **Tables** — table/index/FK catalog browser (size-sorted table list,
   per-table index details).
+- **Connections** — saved profiles with add/edit/delete, live switching
+  between servers and databases, per-profile read-only enforcement.
 - **Heap pages** *(planned)* — decode raw 8KB pages: page header, line
   pointers, tuple headers, MVCC fields (`xmin`/`xmax`, infomask).
 - **WAL** *(planned)* — write-ahead log activity: LSN movement, WAL
@@ -47,6 +49,25 @@ The form asks for a DSN (`postgres://user:pass@host:5432/db`), validates it
 by actually connecting, and can save it locally for next time (`tab` toggles
 saving — opt-in, stored with 0600 permissions). Passwords are stored in
 plaintext, so only save connections you are comfortable keeping on disk.
+
+Saved profiles live in `~/Library/Application Support/snoopg/config.json`:
+
+```json
+{
+  "last": "snoopg_lab",
+  "snoopg_lab": {"dsn": "postgres://postgres:postgres@localhost:5433/snoopg_lab?sslmode=disable"},
+  "automation": {"dsn": "postgres://postgres:postgres@localhost:5432/automation_db?sslmode=disable", "read_only": true}
+}
+```
+
+The **connections** module (`tab` to it) manages these: `n` adds, `e` edits,
+`d` deletes, `m` toggles read-only, `enter` connects. Databases of the
+connected server are listed too — `enter` on one switches live. The header
+shows the current connection and an `[RO]`/`[RW]` badge.
+
+Read-only mode is enforced server-side: it sets
+`default_transaction_read_only=on`, so writes fail with an error rather than
+being filtered client-side.
 
 ```sh
 go run .                                       # saved profile, or the form

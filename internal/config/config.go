@@ -4,11 +4,17 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
+type Profile struct {
+	DSN      string `json:"dsn"`
+	ReadOnly bool   `json:"read_only,omitempty"`
+}
+
 type Config struct {
-	Last     string            `json:"last"`
-	Profiles map[string]string `json:"profiles"`
+	Last     string             `json:"last"`
+	Profiles map[string]Profile `json:"profiles"`
 }
 
 func Path() (string, error) {
@@ -20,7 +26,7 @@ func Path() (string, error) {
 }
 
 func Load() (Config, error) {
-	cfg := Config{Profiles: map[string]string{}}
+	cfg := Config{Profiles: map[string]Profile{}}
 	path, err := Path()
 	if err != nil {
 		return cfg, err
@@ -32,22 +38,78 @@ func Load() (Config, error) {
 		}
 		return cfg, err
 	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return cfg, err
 	}
-	if cfg.Profiles == nil {
-		cfg.Profiles = map[string]string{}
+	if last, ok := raw["last"]; ok {
+		_ = json.Unmarshal(last, &cfg.Last)
+	}
+	profiles := raw
+	if wrapped, ok := raw["profiles"]; ok {
+		_ = json.Unmarshal(wrapped, &profiles)
+	}
+	for k, v := range profiles {
+		if k == "last" {
+			continue
+		}
+		var p Profile
+		if err := json.Unmarshal(v, &p); err == nil && p.DSN != "" {
+			cfg.Profiles[k] = p
+			continue
+		}
+		var dsn string
+		if err := json.Unmarshal(v, &dsn); err == nil && dsn != "" {
+			cfg.Profiles[k] = Profile{DSN: dsn}
+		}
 	}
 	return cfg, nil
 }
 
-func Save(name, dsn string) error {
+func Save(name, dsn string, readOnly bool) error {
 	cfg, err := Load()
 	if err != nil {
 		return err
 	}
-	cfg.Profiles[name] = dsn
+	cfg.Profiles[name] = Profile{DSN: dsn, ReadOnly: readOnly}
 	cfg.Last = name
+	return write(cfg)
+}
+
+func Delete(name string) error {
+	cfg, err := Load()
+	if err != nil {
+		return err
+	}
+	delete(cfg.Profiles, name)
+	if cfg.Last == name {
+		cfg.Last = ""
+	}
+	return write(cfg)
+}
+
+func SetReadOnly(name string, readOnly bool) error {
+	cfg, err := Load()
+	if err != nil {
+		return err
+	}
+	if p, ok := cfg.Profiles[name]; ok {
+		p.ReadOnly = readOnly
+		cfg.Profiles[name] = p
+	}
+	return write(cfg)
+}
+
+func (c Config) Names() []string {
+	out := make([]string, 0, len(c.Profiles))
+	for name := range c.Profiles {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func write(cfg Config) error {
 	path, err := Path()
 	if err != nil {
 		return err

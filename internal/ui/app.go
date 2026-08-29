@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"snoopg/internal/db"
 )
@@ -20,7 +21,7 @@ type app struct {
 	events       []string
 	ext          []string
 	extOn        bool
-	dbName       string
+	connLabel    string
 	suggestWords []string
 	hist         []string
 	histIdx      int
@@ -31,6 +32,14 @@ type app struct {
 	input        textinput.Model
 	width        int
 	height       int
+}
+
+func labelFor(dsn string) string {
+	cfg, err := pgconn.ParseConfig(dsn)
+	if err != nil || cfg.Database == "" {
+		return dsn
+	}
+	return fmt.Sprintf("%s:%d/%s", cfg.Host, cfg.Port, cfg.Database)
 }
 
 type execResultMsg struct {
@@ -52,31 +61,16 @@ type extMsg struct {
 
 type extTickMsg struct{}
 
-type dbNameMsg struct {
-	name string
-}
-
-func dbNameCmd(c *db.Client) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		name, err := c.CurrentDatabase(ctx)
-		if err != nil {
-			name = ""
-		}
-		return dbNameMsg{name: name}
-	}
-}
-
 func NewApp(client *db.Client, mods []Module) tea.Model {
 	input := textinput.New()
 	input.Placeholder = "type a query, enter to run"
 	input.Focus()
 	return &app{
-		client:  client,
-		mods:    mods,
-		input:   input,
-		histIdx: -1,
+		client:    client,
+		mods:      mods,
+		input:     input,
+		histIdx:   -1,
+		connLabel: labelFor(client.DSN()),
 	}
 }
 
@@ -137,9 +131,9 @@ func (a *app) toggleWatch() tea.Cmd {
 
 func (a *app) Init() tea.Cmd {
 	if len(a.mods) == 0 {
-		return tea.Batch(dbNameCmd(a.client), completionCmd(a.client))
+		return completionCmd(a.client)
 	}
-	return tea.Batch(a.mods[a.active].Init(), dbNameCmd(a.client), completionCmd(a.client))
+	return tea.Batch(a.mods[a.active].Init(), completionCmd(a.client))
 }
 
 func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -232,11 +226,24 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
-	case dbNameMsg:
-		a.dbName = msg.name
-		return a, nil
+	case ProfileChangedMsg:
+		a.connLabel = msg.Label
+		cmds := []tea.Cmd{completionCmd(a.client)}
+		if len(a.mods) > 0 {
+			m, cmd := a.mods[a.active].Update(RefreshMsg{})
+			a.mods[a.active] = m
+			cmds = append(cmds, cmd)
+		}
+		return a, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
+		if msg.String() != "ctrl+c" && !a.input.Focused() && len(a.mods) > 0 {
+			if sink, ok := a.mods[a.active].(KeySink); ok && sink.WantsAllKeys() {
+				m, cmd := a.mods[a.active].Update(msg)
+				a.mods[a.active] = m
+				return a, cmd
+			}
+		}
 		switch msg.String() {
 		case "ctrl+c":
 			return a, tea.Quit
@@ -351,8 +358,14 @@ func (a *app) View() string {
 		}
 	}
 	header := Logo()
-	if a.dbName != "" {
-		header += HintStyle.Render(" · " + a.dbName)
+	if a.connLabel != "" {
+		header += HintStyle.Render(" · " + a.connLabel)
+	}
+	_, readOnly := a.client.Info()
+	if readOnly {
+		header += " " + WarnStyle.Render("[RO]")
+	} else {
+		header += " " + HintStyle.Render("[RW]")
 	}
 	header += " " + lipgloss.JoinHorizontal(lipgloss.Left, tabs...)
 

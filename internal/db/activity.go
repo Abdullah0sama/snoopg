@@ -13,7 +13,7 @@ type Activity struct {
 }
 
 func (c *Client) Activity(ctx context.Context) ([]Activity, error) {
-	rows, err := c.pool.Query(ctx, `
+	rows, err := c.current().Query(ctx, `
 		SELECT pid, datname, COALESCE(wait_event_type || '/' || wait_event, ''),
 		       EXTRACT(EPOCH FROM now() - query_start),
 		       LEFT(regexp_replace(query, '\s+', ' ', 'g'), 60)

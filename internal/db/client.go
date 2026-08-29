@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -30,31 +31,131 @@ func sprintVal(v any) string {
 }
 
 type Client struct {
-	pool *pgxpool.Pool
+	mu       sync.RWMutex
+	pool     *pgxpool.Pool
+	dsn      string
+	readOnly bool
+}
+
+func withReadOnly(dsn string, readOnly bool) (string, error) {
+	if !readOnly {
+		return dsn, nil
+	}
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return "", err
+	}
+	cfg.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
+	return cfg.ConnString(), nil
 }
 
 func New(ctx context.Context, dsn string) (*Client, error) {
+	return NewWithMode(ctx, dsn, false)
+}
+
+func NewWithMode(ctx context.Context, dsn string, readOnly bool) (*Client, error) {
+	c := &Client{dsn: dsn, readOnly: readOnly}
+	if err := c.Reconnect(ctx, dsn, readOnly); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func (c *Client) Reconnect(ctx context.Context, dsn string, readOnly bool) error {
+	dsn, err := withReadOnly(dsn, readOnly)
+	if err != nil {
+		return err
+	}
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	cfg.MaxConns = 4
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
+		return err
+	}
+	c.mu.Lock()
+	old := c.pool
+	c.pool = pool
+	c.dsn = dsn
+	c.readOnly = readOnly
+	c.mu.Unlock()
+	if old != nil {
+		old.Close()
+	}
+	return nil
+}
+
+func (c *Client) SwitchDatabase(ctx context.Context, database string) (string, error) {
+	c.mu.RLock()
+	dsn, readOnly := c.dsn, c.readOnly
+	c.mu.RUnlock()
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return "", err
+	}
+	cfg.ConnConfig.Database = database
+	if err := c.Reconnect(ctx, cfg.ConnString(), readOnly); err != nil {
+		return "", err
+	}
+	return c.DSN(), nil
+}
+
+func (c *Client) Info() (dsn string, readOnly bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.dsn, c.readOnly
+}
+
+func (c *Client) DSN() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.dsn
+}
+
+func (c *Client) current() *pgxpool.Pool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.pool
+}
+
+func (c *Client) CurrentDatabase(ctx context.Context) (string, error) {
+	var name string
+	err := c.current().QueryRow(ctx, "SELECT current_database()").Scan(&name)
+	return name, err
+}
+
+func (c *Client) ListDatabases(ctx context.Context) ([]string, error) {
+	rows, err := c.current().Query(ctx, `
+		SELECT datname FROM pg_database
+		WHERE NOT datistemplate
+		ORDER BY datname`)
+	if err != nil {
 		return nil, err
 	}
-	return &Client{pool: pool}, nil
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		out = append(out, name)
+	}
+	return out, rows.Err()
 }
 
 func (c *Client) Query(ctx context.Context, query string) (QueryResult, time.Duration, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	start := time.Now()
-	rows, err := c.pool.Query(ctx, query)
+	rows, err := c.current().Query(ctx, query)
 	if err != nil {
 		return QueryResult{}, time.Since(start), err
 	}
@@ -84,7 +185,7 @@ func (c *Client) Query(ctx context.Context, query string) (QueryResult, time.Dur
 }
 
 func (c *Client) CompletionWords(ctx context.Context) ([]string, error) {
-	rows, err := c.pool.Query(ctx, `
+	rows, err := c.current().Query(ctx, `
 		SELECT n.nspname || '.' || c.relname
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -116,19 +217,18 @@ func (c *Client) Exec(ctx context.Context, query string) (rowsAffected int64, el
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	start := time.Now()
-	tag, err := c.pool.Exec(ctx, query)
+	tag, err := c.current().Exec(ctx, query)
 	if err != nil {
 		return 0, time.Since(start), err
 	}
 	return tag.RowsAffected(), time.Since(start), nil
 }
 
-func (c *Client) CurrentDatabase(ctx context.Context) (string, error) {
-	var name string
-	err := c.pool.QueryRow(ctx, "SELECT current_database()").Scan(&name)
-	return name, err
-}
-
 func (c *Client) Close() {
-	c.pool.Close()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.pool != nil {
+		c.pool.Close()
+		c.pool = nil
+	}
 }
