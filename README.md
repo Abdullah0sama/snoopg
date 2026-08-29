@@ -102,6 +102,7 @@ Default DSN: `postgres://postgres:postgres@localhost:5432/automation_db?sslmode=
 | `1`–`9` | jump to module |
 | `enter` | run query from the query bar |
 | `esc` | toggle between typing in the query bar and browsing the active module |
+| `f2` / `e` | toggle external query watch (`pg_stat_activity`; `e` works when not typing) |
 | `q` / `ctrl+c` | quit |
 
 ## Layout

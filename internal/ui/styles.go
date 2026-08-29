@@ -11,6 +11,7 @@ var (
 	PaneStyle      = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240")).Padding(0, 1)
 	PaneTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
 	ErrorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	WatchStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("201"))
 )
 
 func FitWidth(s string, w int) string {
