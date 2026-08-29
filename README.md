@@ -119,12 +119,18 @@ go run .    # saved profile, SNOOPG_DSN, or -dsn; connection form if none
 
 | Key | Action |
 | --- | --- |
-| `tab` / `shift+tab` | cycle modules |
+| `tab` / `shift+tab` | cycle modules (autocomplete when typing in the query bar) |
 | `1`–`9` | jump to module |
 | `enter` | run query from the query bar |
+| `up` / `down` | query history (previous/next) |
 | `esc` | toggle between typing in the query bar and browsing the active module |
+| `r` | reopen last query result |
 | `f2` / `e` | toggle external query watch (`pg_stat_activity`; `e` works when not typing) |
 | `q` / `ctrl+c` | quit |
+
+Query results open in a modal for `SELECT`-like queries (`j/k` scroll,
+`esc`/`enter` close). Autocomplete suggests SQL keywords plus table and
+column names from the connected database.
 
 ## Layout
 

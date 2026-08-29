@@ -14,16 +14,23 @@ import (
 )
 
 type app struct {
-	client *db.Client
-	mods   []Module
-	active int
-	events []string
-	ext    []string
-	extOn  bool
-	dbName string
-	input  textinput.Model
-	width  int
-	height int
+	client       *db.Client
+	mods         []Module
+	active       int
+	events       []string
+	ext          []string
+	extOn        bool
+	dbName       string
+	suggestWords []string
+	hist         []string
+	histIdx      int
+	results      db.QueryResult
+	lastQuery    string
+	showResults  bool
+	resOffset    int
+	input        textinput.Model
+	width        int
+	height       int
 }
 
 type execResultMsg struct {
@@ -31,6 +38,11 @@ type execResultMsg struct {
 	rowsAffected int64
 	elapsed      time.Duration
 	err          error
+	result       db.QueryResult
+}
+
+type completionMsg struct {
+	words []string
 }
 
 type extMsg struct {
@@ -61,16 +73,35 @@ func NewApp(client *db.Client, mods []Module) tea.Model {
 	input.Placeholder = "type a query, enter to run"
 	input.Focus()
 	return &app{
-		client: client,
-		mods:   mods,
-		input:  input,
+		client:  client,
+		mods:    mods,
+		input:   input,
+		histIdx: -1,
 	}
 }
 
-func execQueryCmd(c *db.Client, query string) tea.Cmd {
+func completionCmd(c *db.Client) tea.Cmd {
 	return func() tea.Msg {
-		n, elapsed, err := c.Exec(context.Background(), query)
-		return execResultMsg{query: query, rowsAffected: n, elapsed: elapsed, err: err}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		words, err := c.CompletionWords(ctx)
+		if err != nil {
+			words = nil
+		}
+		return completionMsg{words: words}
+	}
+}
+
+func queryCmd(c *db.Client, query string) tea.Cmd {
+	return func() tea.Msg {
+		res, elapsed, err := c.Query(context.Background(), query)
+		return execResultMsg{
+			query:        query,
+			rowsAffected: res.RowsAffected,
+			elapsed:      elapsed,
+			err:          err,
+			result:       res,
+		}
 	}
 }
 
@@ -106,9 +137,9 @@ func (a *app) toggleWatch() tea.Cmd {
 
 func (a *app) Init() tea.Cmd {
 	if len(a.mods) == 0 {
-		return dbNameCmd(a.client)
+		return tea.Batch(dbNameCmd(a.client), completionCmd(a.client))
 	}
-	return tea.Batch(a.mods[a.active].Init(), dbNameCmd(a.client))
+	return tea.Batch(a.mods[a.active].Init(), dbNameCmd(a.client), completionCmd(a.client))
 }
 
 func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -117,7 +148,35 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		return a, nil
+	}
 
+	if a.showResults {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			visible := a.resultsVisible()
+			maxOff := len(a.results.Rows) - visible
+			if maxOff < 0 {
+				maxOff = 0
+			}
+			switch msg.String() {
+			case "q", "ctrl+c":
+				return a, tea.Quit
+			case "j", "down":
+				if a.resOffset < maxOff {
+					a.resOffset++
+				}
+			case "k", "up":
+				if a.resOffset > 0 {
+					a.resOffset--
+				}
+			default:
+				a.showResults = false
+			}
+		}
+		return a, nil
+	}
+
+	switch msg := msg.(type) {
 	case execResultMsg:
 		ts := time.Now().Format("15:04:05")
 		q := truncate(msg.query, 60)
@@ -131,11 +190,31 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(a.events) > 200 {
 			a.events = a.events[len(a.events)-200:]
 		}
-		if msg.err == nil && len(a.mods) > 0 {
-			m, cmd := a.mods[a.active].Update(RefreshMsg{})
-			a.mods[a.active] = m
-			return a, cmd
+		if msg.err == nil {
+			if len(a.hist) == 0 || a.hist[len(a.hist)-1] != msg.query {
+				a.hist = append(a.hist, msg.query)
+				if len(a.hist) > 100 {
+					a.hist = a.hist[len(a.hist)-100:]
+				}
+			}
+			a.histIdx = -1
+			if len(msg.result.Columns) > 0 {
+				a.results = msg.result
+				a.lastQuery = msg.query
+				a.resOffset = 0
+				a.showResults = true
+				return a, nil
+			}
+			if len(a.mods) > 0 {
+				m, cmd := a.mods[a.active].Update(RefreshMsg{})
+				a.mods[a.active] = m
+				return a, cmd
+			}
 		}
+		return a, nil
+
+	case completionMsg:
+		a.suggestWords = msg.words
 		return a, nil
 
 	case extMsg:
@@ -162,6 +241,11 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return a, tea.Quit
 		case "tab":
+			if a.input.Focused() {
+				var cmd tea.Cmd
+				a.input, cmd = a.input.Update(msg)
+				return a, cmd
+			}
 			if len(a.mods) > 0 {
 				a.active = (a.active + 1) % len(a.mods)
 				return a, a.mods[a.active].Init()
@@ -177,7 +261,8 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if strings.TrimSpace(a.input.Value()) != "" {
 				query := a.input.Value()
 				a.input.SetValue("")
-				return a, execQueryCmd(a.client, query)
+				a.input.ShowSuggestions = false
+				return a, queryCmd(a.client, query)
 			}
 			return a, nil
 		case "esc":
@@ -189,10 +274,33 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case "f2":
 			return a, a.toggleWatch()
+		case "up":
+			if a.input.Focused() {
+				if a.input.ShowSuggestions {
+					var cmd tea.Cmd
+					a.input, cmd = a.input.Update(msg)
+					a.updateSuggestions()
+					return a, cmd
+				}
+				a.historyUp()
+				return a, nil
+			}
+		case "down":
+			if a.input.Focused() {
+				if a.input.ShowSuggestions {
+					var cmd tea.Cmd
+					a.input, cmd = a.input.Update(msg)
+					a.updateSuggestions()
+					return a, cmd
+				}
+				a.historyDown()
+				return a, nil
+			}
 		default:
 			if a.input.Focused() {
 				var cmd tea.Cmd
 				a.input, cmd = a.input.Update(msg)
+				a.updateSuggestions()
 				return a, cmd
 			}
 			switch msg.String() {
@@ -200,6 +308,12 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, tea.Quit
 			case "e":
 				return a, a.toggleWatch()
+			case "r":
+				if a.lastQuery != "" {
+					a.resOffset = 0
+					a.showResults = true
+					return a, nil
+				}
 			}
 			if d := msg.String(); len(d) == 1 && d[0] >= '1' && d[0] <= '9' {
 				idx := int(d[0] - '1')
@@ -223,6 +337,9 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a *app) View() string {
 	if a.width <= 0 {
 		return "loading..."
+	}
+	if a.showResults {
+		return a.resultsView()
 	}
 
 	tabs := make([]string, 0, len(a.mods))
@@ -323,7 +440,7 @@ func (a *app) View() string {
 		}
 		inputLine = PromptStyle.Render("query: ") + a.input.View()
 	} else {
-		inputLine = HintStyle.Render("esc: focus query · j/k: select table · e: watch · q: quit · tab: module")
+		inputLine = HintStyle.Render("esc: focus query · j/k: select · e: watch · r: results · q: quit · tab: module")
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, content, inputLine)
@@ -334,4 +451,165 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+var sqlKeywords = []string{
+	"SELECT", "FROM", "WHERE", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER", "ON",
+	"AND", "OR", "NOT", "GROUP", "BY", "ORDER", "LIMIT", "OFFSET", "INSERT",
+	"INTO", "VALUES", "UPDATE", "SET", "DELETE", "CREATE", "TABLE", "DROP",
+	"ALTER", "INDEX", "VACUUM", "ANALYZE", "EXPLAIN", "CHECKPOINT", "BEGIN",
+	"COMMIT", "ROLLBACK", "COUNT", "SUM", "AVG", "MIN", "MAX", "AS", "DISTINCT",
+	"NULL", "IS", "LIKE", "ILIKE", "IN", "BETWEEN", "HAVING", "UNION",
+	"RETURNING", "WITH", "CASE", "WHEN", "THEN", "ELSE", "END", "USING",
+}
+
+func (a *app) updateSuggestions() {
+	v := a.input.Value()
+	fields := strings.FieldsFunc(v, func(r rune) bool {
+		return !(r == '_' || r == '.' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'))
+	})
+	word := ""
+	if len(fields) > 0 {
+		word = fields[len(fields)-1]
+	}
+	if word == "" {
+		a.input.SetSuggestions(nil)
+		a.input.ShowSuggestions = false
+		return
+	}
+	lw := strings.ToLower(word)
+	var out []string
+	for _, k := range sqlKeywords {
+		if strings.HasPrefix(strings.ToLower(k), lw) && !strings.EqualFold(k, word) {
+			out = append(out, k)
+		}
+	}
+	for _, w := range a.suggestWords {
+		if strings.HasPrefix(strings.ToLower(w), lw) && !strings.EqualFold(w, word) {
+			out = append(out, w)
+		}
+		if len(out) >= 8 {
+			break
+		}
+	}
+	if len(out) == 0 {
+		a.input.SetSuggestions(nil)
+		a.input.ShowSuggestions = false
+		return
+	}
+	a.input.SetSuggestions(out)
+	a.input.ShowSuggestions = true
+}
+
+func (a *app) historyUp() {
+	if len(a.hist) == 0 {
+		return
+	}
+	if a.histIdx == -1 {
+		a.histIdx = len(a.hist) - 1
+	} else if a.histIdx > 0 {
+		a.histIdx--
+	}
+	a.input.SetValue(a.hist[a.histIdx])
+	a.input.CursorEnd()
+}
+
+func (a *app) historyDown() {
+	if a.histIdx == -1 {
+		return
+	}
+	if a.histIdx < len(a.hist)-1 {
+		a.histIdx++
+		a.input.SetValue(a.hist[a.histIdx])
+		a.input.CursorEnd()
+	} else {
+		a.histIdx = -1
+		a.input.SetValue("")
+	}
+}
+
+func (a *app) resultsVisible() int {
+	visible := a.height - 9
+	if visible < 1 {
+		visible = 1
+	}
+	return visible
+}
+
+func padCell(s string, w int) string {
+	r := []rune(s)
+	if len(r) > w {
+		r = r[:w]
+	}
+	return string(r) + strings.Repeat(" ", w-len(r))
+}
+
+func (a *app) resultsView() string {
+	boxW := a.width * 4 / 5
+	if boxW > a.width-2 {
+		boxW = a.width - 2
+	}
+	if boxW < 40 {
+		boxW = 40
+	}
+	boxH := a.height - 5
+	if boxH < 8 {
+		boxH = 8
+	}
+	innerW := boxW - 4
+
+	title := PaneTitleStyle.Render("results") + HintStyle.Render(" — " + truncate(a.lastQuery, innerW-12))
+	lines := []string{title}
+
+	if len(a.results.Columns) > 0 {
+		widths := make([]int, len(a.results.Columns))
+		for i, c := range a.results.Columns {
+			widths[i] = len([]rune(c))
+			if widths[i] > 28 {
+				widths[i] = 28
+			}
+		}
+		for _, row := range a.results.Rows {
+			for i, cell := range row {
+				if i >= len(widths) {
+					break
+				}
+				l := len([]rune(cell))
+				if l > 28 {
+					l = 28
+				}
+				if l > widths[i] {
+					widths[i] = l
+				}
+			}
+		}
+		hdr := make([]string, len(a.results.Columns))
+		for i, c := range a.results.Columns {
+			hdr[i] = PaneTitleStyle.Render(padCell(c, widths[i]))
+		}
+		lines = append(lines, lipgloss.JoinHorizontal(lipgloss.Left, hdr...))
+		lines = append(lines, HintStyle.Render(strings.Repeat("─", innerW)))
+
+		visible := a.resultsVisible()
+		for i := a.resOffset; i < len(a.results.Rows) && i < a.resOffset+visible; i++ {
+			cells := make([]string, len(widths))
+			for j := range widths {
+				if j < len(a.results.Rows[i]) {
+					cells[j] = padCell(a.results.Rows[i][j], widths[j])
+				} else {
+					cells[j] = strings.Repeat(" ", widths[j])
+				}
+			}
+			lines = append(lines, FitWidth(lipgloss.JoinHorizontal(lipgloss.Left, cells...), innerW))
+		}
+		if a.results.Truncated {
+			lines = append(lines, HintStyle.Render("showing first 200 rows"))
+		}
+	} else {
+		lines = append(lines, HintStyle.Render(fmt.Sprintf("%d rows affected", a.results.RowsAffected)))
+	}
+
+	footer := HintStyle.Render("j/k: scroll · esc/enter: close · r: reopen")
+	box := PaneStyle.Width(boxW).Height(boxH - 2).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return lipgloss.JoinVertical(lipgloss.Left, box, footer)
 }
