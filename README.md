@@ -34,13 +34,37 @@ query runs.
 - A reachable PostgreSQL instance (any recent version; developed against 18)
 - `pg_buffercache` extension installed: `CREATE EXTENSION pg_buffercache;`
 
-## Lab
+## Connecting
 
-The load generator and most demos run against a dedicated lab database:
+No credentials are hardcoded. The connection is resolved in this order:
+
+1. `SNOOPG_DSN` environment variable
+2. `-dsn` command line flag
+3. a saved profile (last used) from `~/Library/Application Support/snoopg/config.json`
+4. an interactive connection form in the TUI
+
+The form asks for a DSN (`postgres://user:pass@host:5432/db`), validates it
+by actually connecting, and can save it locally for next time (`tab` toggles
+saving — opt-in, stored with 0600 permissions). Passwords are stored in
+plaintext, so only save connections you are comfortable keeping on disk.
 
 ```sh
-psql -h localhost -U postgres -c 'CREATE DATABASE snoopg_lab;'
-psql -h localhost -U postgres -d snoopg_lab <<'SQL'
+go run .                                       # saved profile, or the form
+SNOOPG_DSN='postgres://user:pass@host/db' go run .
+go run . -dsn 'postgres://user:pass@host/db'
+```
+
+## Lab
+
+The load generator and most demos run against a dedicated lab instance so
+experiments never compete with other traffic for the buffer cache:
+
+```sh
+docker run -d --name snoopg-lab -p 5433:5432 \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=snoopg_lab \
+  postgres:18 -c shared_buffers=64MB
+docker exec snoopg-lab psql -U postgres -d snoopg_lab <<'SQL'
+CREATE EXTENSION pg_buffercache;
 CREATE TABLE big (id int PRIMARY KEY, payload text);
 INSERT INTO big SELECT g, repeat(md5(g::text), 8) FROM generate_series(1, 2000000) g;
 
@@ -49,8 +73,8 @@ INSERT INTO hot SELECT g, md5(g::text) FROM generate_series(1, 10000) g;
 SQL
 ```
 
-- `big` — 2M rows, ≈ 622MB. About 5x `shared_buffers` (128MB default),
-  so a full scan churns the entire buffer cache.
+- `big` — 2M rows, ≈ 622MB. About 10x `shared_buffers` (64MB), so scans
+  and random reads churn the cache with real evictions.
 - `hot` — 10k rows, ≈ 952kB. Small enough to stay resident; index scans
   show as a handful of pinned pages.
 
@@ -64,8 +88,8 @@ go run ./cmd/snoopg-load -scenario seqscan
 go run ./cmd/snoopg-load -scenario oltp -count 200 -sleep 50
 ```
 
-Flags: `-dsn` (default `postgres://postgres:postgres@localhost:5432/snoopg_lab?sslmode=disable`,
-env override `SNOOPG_DSN`), `-scenario`, `-count` (default 5 for seqscan/vacuum/burst,
+Flags: `-dsn` (empty by default — falls back to `SNOOPG_DSN` env, then the
+saved profile), `-scenario`, `-count` (default 5 for seqscan/vacuum/burst,
 100 otherwise), `-sleep` (milliseconds between operations).
 
 | Scenario | What it does | What to watch in the TUI |
@@ -90,11 +114,8 @@ go run ./cmd/snoopg-load -scenario burst -count 50 -sleep 200
 ## Usage
 
 ```sh
-go run .                       # connects to the default local DSN
-SNOOPG_DSN='postgres://user:pass@host:5432/db' go run .
+go run .    # saved profile, SNOOPG_DSN, or -dsn; connection form if none
 ```
-
-Default DSN: `postgres://postgres:postgres@localhost:5432/automation_db?sslmode=disable`
 
 | Key | Action |
 | --- | --- |

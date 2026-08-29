@@ -16,9 +16,9 @@ import (
 
 var (
 	barFillStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-	barDirtyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
+	barDirtyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	barEmptyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
-	orangeStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
+	orangeStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 )
 
 type BufferCache struct {

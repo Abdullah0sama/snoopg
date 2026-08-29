@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-)
 
-const defaultDSN = "postgres://postgres:postgres@localhost:5432/snoopg_lab?sslmode=disable"
+	"snoopg/internal/config"
+)
 
 const opTimeout = 60 * time.Second
 
@@ -118,7 +118,7 @@ func runOp(ctx context.Context, pool *pgxpool.Pool, scenario string) (string, er
 }
 
 func main() {
-	dsnFlag := flag.String("dsn", defaultDSN, "PostgreSQL DSN")
+	dsnFlag := flag.String("dsn", "", "PostgreSQL DSN (env SNOOPG_DSN or saved profile if empty)")
 	scenario := flag.String("scenario", "seqscan", "seqscan|updates|oltp|indexscan|vacuum|checkpoint|burst")
 	count := flag.Int("count", -1, "number of operations (default depends on scenario)")
 	sleepMS := flag.Int("sleep", 0, "milliseconds to sleep between operations")
@@ -141,6 +141,15 @@ func main() {
 	dsn := os.Getenv("SNOOPG_DSN")
 	if dsn == "" {
 		dsn = *dsnFlag
+	}
+	if dsn == "" {
+		if cfg, err := config.Load(); err == nil {
+			dsn = cfg.Profiles[cfg.Last]
+		}
+	}
+	if dsn == "" {
+		fmt.Fprintln(os.Stderr, "snoopg-load: no connection configured — set SNOOPG_DSN, pass -dsn, or run snoopg once to save one")
+		os.Exit(1)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)

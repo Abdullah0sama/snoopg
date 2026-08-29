@@ -208,7 +208,7 @@ func (a *app) View() string {
 			tabs = append(tabs, TabStyle.Render(m.Title()))
 		}
 	}
-	header := HeaderStyle.Render("snoopg") + " " + lipgloss.JoinHorizontal(lipgloss.Left, tabs...)
+	header := Logo() + " " + lipgloss.JoinHorizontal(lipgloss.Left, tabs...)
 
 	contentH := a.height - 2
 	if contentH < 1 {
