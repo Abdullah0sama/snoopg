@@ -117,9 +117,9 @@ func renderNode(n db.PlanNode, prefix string, isLast bool, isRoot bool, rootCost
 	if n.RelationName != "" {
 		line += " on " + n.RelationName
 	}
-	line += fmt.Sprintf(" (cost=%.2f..%.2f rows=%d width=%d)", n.StartupCost, n.TotalCost, n.PlanRows, n.PlanWidth)
+	line += fmt.Sprintf(" (cost=%.2f..%.2f rows=%.0f width=%.0f)", n.StartupCost, n.TotalCost, n.PlanRows, n.PlanWidth)
 	if analyzed && n.ActualTotalTime > 0 {
-		line += fmt.Sprintf(" (actual time=%.2f..%.2f rows=%d loops=%d)", n.ActualStartupTime, n.ActualTotalTime, n.ActualRows, n.ActualLoops)
+		line += fmt.Sprintf(" (actual time=%.2f..%.2f rows=%.0f loops=%.0f)", n.ActualStartupTime, n.ActualTotalTime, n.ActualRows, n.ActualLoops)
 	}
 
 	share := 0.0

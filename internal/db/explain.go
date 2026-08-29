@@ -13,15 +13,15 @@ type PlanNode struct {
 	Alias               string     `json:"Alias"`
 	StartupCost         float64    `json:"Startup Cost"`
 	TotalCost           float64    `json:"Total Cost"`
-	PlanRows            int64      `json:"Plan Rows"`
-	PlanWidth           int64      `json:"Plan Width"`
+	PlanRows            float64    `json:"Plan Rows"`
+	PlanWidth           float64    `json:"Plan Width"`
 	ActualStartupTime   float64    `json:"Actual Startup Time"`
 	ActualTotalTime     float64    `json:"Actual Total Time"`
-	ActualRows          int64      `json:"Actual Rows"`
-	ActualLoops         int64      `json:"Actual Loops"`
-	SharedHitBlocks     int64      `json:"Shared Hit Blocks"`
-	SharedReadBlocks    int64      `json:"Shared Read Blocks"`
-	SharedDirtiedBlocks int64      `json:"Shared Dirtied Blocks"`
+	ActualRows          float64    `json:"Actual Rows"`
+	ActualLoops         float64    `json:"Actual Loops"`
+	SharedHitBlocks     float64    `json:"Shared Hit Blocks"`
+	SharedReadBlocks    float64    `json:"Shared Read Blocks"`
+	SharedDirtiedBlocks float64    `json:"Shared Dirtied Blocks"`
 	Plans               []PlanNode `json:"Plans"`
 }
 
