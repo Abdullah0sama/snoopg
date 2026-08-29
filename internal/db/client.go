@@ -61,19 +61,21 @@ func NewWithMode(ctx context.Context, dsn string, readOnly bool) (*Client, error
 	return c, nil
 }
 
-func (c *Client) Reconnect(ctx context.Context, dsn string, readOnly bool) error {
-	cfg, err := buildPoolConfig(dsn, readOnly)
+func newPool(ctx context.Context, cfg *pgxpool.Config) (*pgxpool.Pool, error) {
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	if err := pool.Ping(ctx); err != nil {
+	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := pool.Ping(pingCtx); err != nil {
 		pool.Close()
-		return err
+		return nil, err
 	}
+	return pool, nil
+}
+
+func (c *Client) swap(pool *pgxpool.Pool, dsn string, readOnly bool) {
 	c.mu.Lock()
 	old := c.pool
 	c.pool = pool
@@ -81,8 +83,23 @@ func (c *Client) Reconnect(ctx context.Context, dsn string, readOnly bool) error
 	c.readOnly = readOnly
 	c.mu.Unlock()
 	if old != nil {
-		old.Close()
+		go func() {
+			time.Sleep(10 * time.Second)
+			old.Close()
+		}()
 	}
+}
+
+func (c *Client) Reconnect(ctx context.Context, dsn string, readOnly bool) error {
+	cfg, err := buildPoolConfig(dsn, readOnly)
+	if err != nil {
+		return err
+	}
+	pool, err := newPool(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	c.swap(pool, dsn, readOnly)
 	return nil
 }
 
@@ -95,22 +112,11 @@ func (c *Client) SwitchDatabase(ctx context.Context, database string) (string, e
 		return "", err
 	}
 	cfg.ConnConfig.Database = database
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	pool, err := newPool(ctx, cfg)
 	if err != nil {
 		return "", err
 	}
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return "", err
-	}
-	c.mu.Lock()
-	old := c.pool
-	c.pool = pool
-	c.dsn = cfg.ConnString()
-	c.mu.Unlock()
-	if old != nil {
-		old.Close()
-	}
+	c.swap(pool, cfg.ConnString(), readOnly)
 	return c.dsn, nil
 }
 
