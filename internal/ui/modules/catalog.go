@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	selStyle    = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("0")).Bold(true)
+	selStyle    = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground(lipgloss.Color("15")).Bold(true)
 	markerStyle = lipgloss.NewStyle().Bold(true)
 )
 

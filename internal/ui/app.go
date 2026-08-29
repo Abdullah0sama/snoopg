@@ -529,7 +529,7 @@ func (a *app) historyDown() {
 }
 
 func (a *app) resultsVisible() int {
-	visible := a.height - 9
+	visible := a.height - 8
 	if visible < 1 {
 		visible = 1
 	}
@@ -552,7 +552,7 @@ func (a *app) resultsView() string {
 	if boxW < 40 {
 		boxW = 40
 	}
-	boxH := a.height - 5
+	boxH := a.height - 1
 	if boxH < 8 {
 		boxH = 8
 	}
@@ -611,5 +611,14 @@ func (a *app) resultsView() string {
 
 	footer := HintStyle.Render("j/k: scroll · esc/enter: close · r: reopen")
 	box := PaneStyle.Width(boxW).Height(boxH - 2).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
-	return lipgloss.JoinVertical(lipgloss.Left, box, footer)
+	out := lipgloss.JoinVertical(lipgloss.Left, box, footer)
+	leftPad := (a.width - boxW) / 2
+	if leftPad > 0 {
+		outLines := strings.Split(out, "\n")
+		for i := range outLines {
+			outLines[i] = strings.Repeat(" ", leftPad) + outLines[i]
+		}
+		out = strings.Join(outLines, "\n")
+	}
+	return out
 }
