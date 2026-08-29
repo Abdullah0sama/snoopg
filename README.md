@@ -32,6 +32,59 @@ query runs.
 - A reachable PostgreSQL instance (any recent version; developed against 18)
 - `pg_buffercache` extension installed: `CREATE EXTENSION pg_buffercache;`
 
+## Lab
+
+The load generator and most demos run against a dedicated lab database:
+
+```sh
+psql -h localhost -U postgres -c 'CREATE DATABASE pgspy_lab;'
+psql -h localhost -U postgres -d pgspy_lab <<'SQL'
+CREATE TABLE big (id int PRIMARY KEY, payload text);
+INSERT INTO big SELECT g, repeat(md5(g::text), 8) FROM generate_series(1, 2000000) g;
+
+CREATE TABLE hot (id int PRIMARY KEY, payload text);
+INSERT INTO hot SELECT g, md5(g::text) FROM generate_series(1, 10000) g;
+SQL
+```
+
+- `big` — 2M rows, ≈ 622MB. About 5x `shared_buffers` (128MB default),
+  so a full scan churns the entire buffer cache.
+- `hot` — 10k rows, ≈ 952kB. Small enough to stay resident; index scans
+  show as a handful of pinned pages.
+
+## Load generator
+
+`cmd/pgspy-load` generates query traffic against the lab database so the TUI
+has something to react to:
+
+```sh
+go run ./cmd/pgspy-load -scenario seqscan
+go run ./cmd/pgspy-load -scenario oltp -count 200 -sleep 50
+```
+
+Flags: `-dsn` (default `postgres://postgres:postgres@localhost:5432/pgspy_lab?sslmode=disable`,
+env override `PGSPY_DSN`), `-scenario`, `-count` (default 5 for seqscan/vacuum/burst,
+100 otherwise), `-sleep` (milliseconds between operations).
+
+| Scenario | What it does | What to watch in the TUI |
+| --- | --- | --- |
+| `seqscan` | `SELECT count(*) FROM big` | buffer count fills to 100%, usage counts reset |
+| `updates` | random-row `UPDATE` on `big` | dirty page count climbs |
+| `oltp` | index lookup on `hot` | hot relation stays pinned, cache barely moves |
+| `vacuum` | `VACUUM (ANALYZE) big` | all of `big` paged in, then available again |
+| `checkpoint` | `CHECKPOINT` + 1s sleep | dirty count drops to zero |
+| `burst` | random mix of the above | cache churn from mixed workloads |
+
+Two-pane tmux workflow: TUI in one pane, generator in the other:
+
+```sh
+tmux new-session -s pgspy
+# left pane
+go run .
+# ctrl+b % — right pane
+go run ./cmd/pgspy-load -scenario burst -count 50 -sleep 200
+```
+
 ## Usage
 
 ```sh
