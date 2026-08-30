@@ -205,13 +205,7 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.events = a.events[len(a.events)-200:]
 		}
 		if msg.err == nil {
-			if len(a.hist) == 0 || a.hist[len(a.hist)-1] != msg.query {
-				a.hist = append(a.hist, msg.query)
-				if len(a.hist) > 100 {
-					a.hist = a.hist[len(a.hist)-100:]
-				}
-			}
-			a.histIdx = -1
+			a.addHistory(msg.query)
 			if len(msg.result.Columns) > 0 {
 				a.results = msg.result
 				a.lastQuery = msg.query
@@ -239,6 +233,9 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.events = append(a.events, line)
 		if len(a.events) > 200 {
 			a.events = a.events[len(a.events)-200:]
+		}
+		if msg.Err == nil {
+			a.addHistory(msg.Query)
 		}
 		for i, mod := range a.mods {
 			if mod.Title() == "plans" {
@@ -635,6 +632,16 @@ func (a *app) updateSuggestions() {
 	}
 	a.input.SetSuggestions(out)
 	a.input.ShowSuggestions = true
+}
+
+func (a *app) addHistory(query string) {
+	if len(a.hist) == 0 || a.hist[len(a.hist)-1] != query {
+		a.hist = append(a.hist, query)
+		if len(a.hist) > 100 {
+			a.hist = a.hist[len(a.hist)-100:]
+		}
+	}
+	a.histIdx = -1
 }
 
 func (a *app) historyUp() {
