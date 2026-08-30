@@ -143,7 +143,6 @@ func (m *Connections) Update(msg tea.Msg) (ui.Module, tea.Cmd) {
 		return m, fetchConnCmd(m.client)
 	case ui.ProfileChangedMsg:
 		m.currentLabel = msg.Label
-		m.sel = 0
 		return m, fetchConnCmd(m.client)
 	case connectResultMsg:
 		if msg.err != nil {
