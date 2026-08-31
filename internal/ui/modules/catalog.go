@@ -6,9 +6,6 @@ import (
 	"strings"
 	"time"
 
-	tree "charm.land/bubbles/v2/tree"
-	v2tea "charm.land/bubbletea/v2"
-	v2lip "charm.land/lipgloss/v2"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -16,23 +13,24 @@ import (
 	"snoopg/internal/ui"
 )
 
+type line struct {
+	text string
+	root bool
+	tbl  int
+}
+
 type Tables struct {
-	client  *db.Client
-	dbName  string
-	tables  []db.TableInfo
-	err     string
-	tree    tree.Model
-	lastSig string
-	treeW   int
-	treeH   int
+	client   *db.Client
+	dbName   string
+	tables   []db.TableInfo
+	err      string
+	expanded map[string]bool
+	sel      int
+	offset   int
 }
 
 func NewTables(client *db.Client) *Tables {
-	m := &Tables{client: client}
-	m.tree = tree.New(tree.Root(""), 0, 0)
-	m.tree.SetShowHelp(false)
-	m.tree.SetStyles(catalogTreeStyles())
-	return m
+	return &Tables{client: client, expanded: map[string]bool{}}
 }
 
 func (m *Tables) Title() string { return "tables" }
@@ -60,6 +58,52 @@ func fetchCatalogCmd(c *db.Client) tea.Cmd {
 	}
 }
 
+func (m *Tables) buildLines() []line {
+	var lines []line
+	for i, t := range m.tables {
+		key := t.Schema + "." + t.Name
+		arrow := "▸"
+		if m.expanded[key] {
+			arrow = "▾"
+		}
+		lines = append(lines, line{
+			text: fmt.Sprintf("%s %s.%s  %s", arrow, t.Schema, t.Name, prettyBytes(t.SizeBytes)),
+			root: true,
+			tbl:  i,
+		})
+		if !m.expanded[key] {
+			continue
+		}
+		for _, ix := range t.Indexes {
+			marker := "    "
+			if ix.Primary {
+				marker = "[PK]"
+			} else if ix.Unique {
+				marker = "[U]"
+			}
+			lines = append(lines, line{
+				text: fmt.Sprintf("    %s %s (%s)  %s", marker, ix.Name, ix.Columns, prettyBytes(ix.SizeBytes)),
+			})
+		}
+		for _, r := range t.Refs {
+			lines = append(lines, line{text: "    → " + r})
+		}
+		for _, r := range t.RefBy {
+			lines = append(lines, line{text: "    ← " + r})
+		}
+	}
+	return lines
+}
+
+func (m *Tables) clampSel(lines int) {
+	if m.sel > lines-1 {
+		m.sel = lines - 1
+	}
+	if m.sel < 0 {
+		m.sel = 0
+	}
+}
+
 func (m *Tables) Update(msg tea.Msg) (ui.Module, tea.Cmd) {
 	switch msg := msg.(type) {
 	case fetchMsg:
@@ -70,140 +114,42 @@ func (m *Tables) Update(msg tea.Msg) (ui.Module, tea.Cmd) {
 		} else {
 			m.err = ""
 		}
-		sig := catalogSig(msg.tables)
-		if sig != m.lastSig {
-			m.tree = newCatalogTree(msg.tables, m.treeW, m.treeH)
-			m.lastSig = sig
-		}
+		m.clampSel(len(m.buildLines()))
 		return m, tea.Tick(2*time.Second, func(time.Time) tea.Msg { return catalogTickMsg{} })
 	case catalogTickMsg:
 		return m, fetchCatalogCmd(m.client)
 	case ui.RefreshMsg:
 		return m, fetchCatalogCmd(m.client)
 	case tea.KeyMsg:
-		nt, cmd := m.tree.Update(bridgeKeyMsg(msg))
-		m.tree = nt
-		if cmd != nil {
-			return m, func() tea.Msg { return cmd() }
+		lines := m.buildLines()
+		switch msg.String() {
+		case "up", "k":
+			if m.sel > 0 {
+				m.sel--
+			}
+			return m, nil
+		case "down", "j":
+			if m.sel < len(lines)-1 {
+				m.sel++
+			}
+			return m, nil
+		case "enter", "right":
+			if m.sel >= 0 && m.sel < len(lines) && lines[m.sel].root {
+				t := m.tables[lines[m.sel].tbl]
+				key := t.Schema + "." + t.Name
+				m.expanded[key] = true
+			}
+			return m, nil
+		case "left":
+			if m.sel >= 0 && m.sel < len(lines) && lines[m.sel].root {
+				t := m.tables[lines[m.sel].tbl]
+				key := t.Schema + "." + t.Name
+				delete(m.expanded, key)
+			}
+			return m, nil
 		}
-		return m, nil
 	}
 	return m, nil
-}
-
-func bridgeKeyMsg(msg tea.KeyMsg) v2tea.KeyPressMsg {
-	k := v2tea.KeyPressMsg{}
-	switch msg.Type {
-	case tea.KeyRunes:
-		k.Text = string(msg.Runes)
-		if len(msg.Runes) > 0 {
-			k.Code = msg.Runes[0]
-		}
-	case tea.KeyUp:
-		k.Code = v2tea.KeyUp
-	case tea.KeyDown:
-		k.Code = v2tea.KeyDown
-	case tea.KeyLeft:
-		k.Code = v2tea.KeyLeft
-	case tea.KeyRight:
-		k.Code = v2tea.KeyRight
-	case tea.KeyEnter:
-		k.Code = v2tea.KeyEnter
-	case tea.KeySpace:
-		k.Code = v2tea.KeySpace
-	case tea.KeyTab:
-		k.Code = v2tea.KeyTab
-	case tea.KeyEsc:
-		k.Code = v2tea.KeyEscape
-	case tea.KeyBackspace:
-		k.Code = v2tea.KeyBackspace
-	case tea.KeyDelete:
-		k.Code = v2tea.KeyDelete
-	case tea.KeyHome:
-		k.Code = v2tea.KeyHome
-	case tea.KeyEnd:
-		k.Code = v2tea.KeyEnd
-	case tea.KeyPgUp:
-		k.Code = v2tea.KeyPgUp
-	case tea.KeyPgDown:
-		k.Code = v2tea.KeyPgDown
-	case tea.KeyShiftTab:
-		k.Code = v2tea.KeyTab
-		k.Mod = v2tea.ModShift
-	default:
-		switch {
-		case msg.Type >= tea.KeyCtrlA && msg.Type <= tea.KeyCtrlZ:
-			k.Code = 'a' + rune(msg.Type-tea.KeyCtrlA)
-			k.Mod = v2tea.ModCtrl
-		case msg.Type >= tea.KeyF1 && msg.Type <= tea.KeyF20:
-			k.Code = v2tea.KeyF1 + rune(msg.Type-tea.KeyF1)
-		}
-	}
-	return k
-}
-
-func catalogTreeStyles() tree.Styles {
-	st := tree.DefaultDarkStyles()
-	st.SelectedNodeStyle = v2lip.NewStyle().Background(v2lip.Color("208")).Foreground(v2lip.Color("0")).Bold(true)
-	st.CursorStyle = v2lip.NewStyle().PaddingRight(1).Foreground(v2lip.Color("208")).Bold(true)
-	st.RootNodeStyle = v2lip.NewStyle().Foreground(v2lip.Color("238"))
-	st.OpenIndicatorStyle = v2lip.NewStyle().Foreground(v2lip.Color("241"))
-	return st
-}
-
-func newCatalogTree(tables []db.TableInfo, w, h int) tree.Model {
-	root := tree.Root("")
-	for _, t := range tables {
-		tn := tree.Root(fmt.Sprintf("%s.%s  %s", t.Schema, t.Name, prettyBytes(t.SizeBytes)))
-		var kids []any
-		for _, ix := range t.Indexes {
-			marker := "    "
-			if ix.Primary {
-				marker = "[PK]"
-			} else if ix.Unique {
-				marker = "[U]"
-			}
-			kids = append(kids, fmt.Sprintf("%s %s (%s)  %s", marker, ix.Name, ix.Columns, prettyBytes(ix.SizeBytes)))
-		}
-		for _, r := range t.Refs {
-			kids = append(kids, "→ "+r)
-		}
-		for _, r := range t.RefBy {
-			kids = append(kids, "← "+r)
-		}
-		tn.Child(kids...)
-		root.Child(tn)
-	}
-	m := tree.New(root, w, h)
-	m.SetShowHelp(false)
-	m.SetStyles(catalogTreeStyles())
-	return m
-}
-
-func catalogSig(tables []db.TableInfo) string {
-	var b strings.Builder
-	for _, t := range tables {
-		b.WriteString(t.Schema)
-		b.WriteByte('.')
-		b.WriteString(t.Name)
-		b.WriteByte(';')
-		for _, ix := range t.Indexes {
-			b.WriteString(ix.Name)
-			b.WriteByte(',')
-		}
-		b.WriteByte(';')
-		for _, r := range t.Refs {
-			b.WriteString(r)
-			b.WriteByte(',')
-		}
-		b.WriteByte(';')
-		for _, r := range t.RefBy {
-			b.WriteString(r)
-			b.WriteByte(',')
-		}
-		b.WriteByte('|')
-	}
-	return b.String()
 }
 
 func (m *Tables) View(width, height int) string {
@@ -217,16 +163,6 @@ func (m *Tables) View(width, height int) string {
 	innerH := height - 2
 	if innerH < 1 {
 		innerH = 1
-	}
-
-	treeH := innerH - 1
-	if treeH < 1 {
-		treeH = 1
-	}
-	if m.treeW != innerW || m.treeH != treeH {
-		m.tree.SetSize(innerW, treeH)
-		m.treeW = innerW
-		m.treeH = treeH
 	}
 
 	title := ui.PaneTitleStyle.Render("TABLES")
@@ -243,32 +179,59 @@ func (m *Tables) View(width, height int) string {
 
 	lines := []string{header}
 
-	limit := innerH - 1
+	visible := innerH - 1
 	if m.err != "" {
-		limit--
+		visible--
 	}
-	if limit < 0 {
-		limit = 0
+	all := m.buildLines()
+	m.clampSel(len(all))
+	if m.sel >= m.offset+visible {
+		m.offset = m.sel - visible + 1
 	}
-	treeLines := strings.Split(m.tree.View(), "\n")
-	for i := range treeLines {
-		treeLines[i] = ui.FitWidth(treeLines[i], innerW)
+	if m.sel < m.offset {
+		m.offset = m.sel
 	}
-	if len(treeLines) > limit {
-		treeLines = treeLines[:limit]
+	maxOff := len(all) - visible
+	if maxOff < 0 {
+		maxOff = 0
 	}
-	for len(treeLines) < limit {
-		treeLines = append(treeLines, "")
+	if m.offset > maxOff {
+		m.offset = maxOff
 	}
-	lines = append(lines, treeLines...)
+	if m.offset < 0 {
+		m.offset = 0
+	}
+
+	rows := 0
+	for i := m.offset; i < len(all) && rows < visible; i++ {
+		text := ui.FitWidth(all[i].text, innerW)
+		if i == m.sel {
+			text = ui.SelStyle.Width(innerW).Render(padTo(text, innerW))
+		} else if !all[i].root {
+			text = ui.HintStyle.Render(padTo(text, innerW))
+		}
+		lines = append(lines, text)
+		rows++
+	}
+	for rows < visible {
+		lines = append(lines, "")
+		rows++
+	}
 
 	if m.err != "" {
 		lines = append(lines, ui.ErrorStyle.Render(ui.FitWidth("error: "+m.err, innerW)))
 	}
-
 	lines = append(lines, ui.HintStyle.Render(ui.FitWidth("j/k: move · enter/→: expand · ←: collapse", innerW)))
 
 	return ui.PaneStyle.Width(width).Height(height - 2).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
+
+func padTo(s string, w int) string {
+	r := []rune(s)
+	if len(r) > w {
+		r = r[:w]
+	}
+	return string(r) + strings.Repeat(" ", w-len(r))
 }
 
 func prettyBytes(n int64) string {
