@@ -56,7 +56,7 @@ func (c *Client) Catalog(ctx context.Context) ([]TableInfo, error) {
 
 	rows, err = c.current().Query(ctx, `
 		SELECT n.nspname, c.relname, ic.relname, ix.indisunique, ix.indisprimary,
-		       COALESCE(string_agg(a.attname, ', ' ORDER BY ord.n), ''),
+		       COALESCE(string_agg(a.attname || ' ' || pg_catalog.format_type(a.atttypid, a.atttypmod), ', ' ORDER BY ord.n), ''),
 		       pg_relation_size(ix.indexrelid)
 		FROM pg_index ix
 		JOIN pg_class c ON c.oid = ix.indrelid
