@@ -20,6 +20,7 @@ type namedProfile struct {
 	Name     string
 	DSN      string
 	ReadOnly bool
+	TokenCmd string
 	Label    string
 }
 
@@ -74,15 +75,16 @@ func fetchConnCmd(c *db.Client) tea.Cmd {
 		cfg, cfgErr := config.Load()
 		var profiles []namedProfile
 		if cfgErr == nil {
-			for _, name := range cfg.Names() {
-				p := cfg.Profiles[name]
-				profiles = append(profiles, namedProfile{
-					Name:     name,
-					DSN:      p.DSN,
-					ReadOnly: p.ReadOnly,
-					Label:    shortLabel(p.DSN),
-				})
-			}
+		for _, name := range cfg.Names() {
+			p := cfg.Profiles[name]
+			profiles = append(profiles, namedProfile{
+				Name:     name,
+				DSN:      p.DSN,
+				ReadOnly: p.ReadOnly,
+				TokenCmd: p.TokenCmd,
+				Label:    shortLabel(p.DSN),
+			})
+		}
 		}
 		dbs, dbsErr := c.ListDatabases(ctx)
 		var err error
@@ -95,10 +97,17 @@ func fetchConnCmd(c *db.Client) tea.Cmd {
 	}
 }
 
-func connectProfileCmd(c *db.Client, dsn string, readOnly bool) tea.Cmd {
+func connectProfileCmd(c *db.Client, dsn, tokenCmd string, readOnly bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		if tokenCmd != "" {
+			resolved, err := db.ResolvePassword(dsn, tokenCmd)
+			if err != nil {
+				return connectResultMsg{err: err}
+			}
+			dsn = resolved
+		}
 		if err := c.Reconnect(ctx, dsn, readOnly); err != nil {
 			return connectResultMsg{err: err}
 		}
@@ -167,7 +176,7 @@ func (m *Connections) Update(msg tea.Msg) (ui.Module, tea.Cmd) {
 			if kind == "profile" {
 				for _, p := range m.profiles {
 					if p.Name == name {
-						return m, connectProfileCmd(m.client, p.DSN, p.ReadOnly)
+						return m, connectProfileCmd(m.client, p.DSN, p.TokenCmd, p.ReadOnly)
 					}
 				}
 			} else if kind == "db" {
@@ -253,7 +262,7 @@ func (m *Connections) updateForm(msg tea.Msg) (ui.Module, tea.Cmd) {
 			}
 			m.form = false
 			m.err = ""
-			return m, tea.Batch(connectProfileCmd(m.client, dsn, m.formReadOnly), fetchConnCmd(m.client))
+			return m, tea.Batch(connectProfileCmd(m.client, dsn, "", m.formReadOnly), fetchConnCmd(m.client))
 		default:
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)

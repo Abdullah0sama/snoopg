@@ -105,8 +105,7 @@ func (c *Client) Reconnect(ctx context.Context, dsn string, readOnly bool) error
 	return nil
 }
 
-func dsnWithDatabase(dsn, database string) string {
-	if u, err := url.Parse(dsn); err == nil && u.Path != "" && u.Path != "/" {
+func dsnWithDatabase(dsn, database string) string {	if u, err := url.Parse(dsn); err == nil && u.Path != "" && u.Path != "/" {
 		u.Path = "/" + database
 		return u.String()
 	}

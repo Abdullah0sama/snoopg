@@ -16,19 +16,19 @@ import (
 	"snoopg/internal/ui/modules"
 )
 
-func resolveProfile(dsnFlag string) (dsn string, readOnly bool) {
+func resolveProfile(dsnFlag string) (dsn string, readOnly bool, tokenCmd string) {
 	if dsn := os.Getenv("SNOOPG_DSN"); dsn != "" {
-		return dsn, false
+		return dsn, false, ""
 	}
 	if dsnFlag != "" {
-		return dsnFlag, false
+		return dsnFlag, false, ""
 	}
 	if cfg, err := config.Load(); err == nil {
 		if p, ok := cfg.Profiles[cfg.Last]; ok && p.DSN != "" {
-			return p.DSN, p.ReadOnly
+			return p.DSN, p.ReadOnly, p.TokenCmd
 		}
 	}
-	return "", false
+	return "", false, ""
 }
 
 func profileName(dsn string) string {
@@ -45,7 +45,15 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	dsn, readOnly := resolveProfile(*dsnFlag)
+	dsn, readOnly, tokenCmd := resolveProfile(*dsnFlag)
+	if dsn != "" && tokenCmd != "" {
+		var err error
+		dsn, err = db.ResolvePassword(dsn, tokenCmd)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "snoopg: %v\n", err)
+			os.Exit(1)
+		}
+	}
 	if dsn == "" {
 		var err error
 		var save bool
