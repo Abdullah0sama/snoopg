@@ -469,9 +469,11 @@ func (a *app) View() string {
 	if a.connLabel != "" {
 		header += HintStyle.Render(" · " + a.connLabel)
 	}
-	_, readOnly := a.client.Info()
+	dsn, readOnly := a.client.Info()
 	if readOnly {
 		header += " " + WarnStyle.Render("[RO]")
+	} else if cfg, err := pgconn.ParseConfig(dsn); err == nil && cfg.Host != "localhost" && cfg.Host != "127.0.0.1" {
+		header += " " + ErrorStyle.Render("[RW]")
 	} else {
 		header += " " + HintStyle.Render("[RW]")
 	}

@@ -53,6 +53,19 @@ func fetchStatsCmd(c *db.Client) tea.Cmd {
 	}
 }
 
+func pollInterval(totalPages int) time.Duration {
+	switch {
+	case totalPages <= 0:
+		return 2 * time.Second
+	case totalPages < 20_000:
+		return 500 * time.Millisecond
+	case totalPages < 200_000:
+		return 2 * time.Second
+	default:
+		return 5 * time.Second
+	}
+}
+
 func (m *BufferCache) Update(msg tea.Msg) (ui.Module, tea.Cmd) {
 	switch msg := msg.(type) {
 	case statsMsg:
@@ -63,7 +76,8 @@ func (m *BufferCache) Update(msg tea.Msg) (ui.Module, tea.Cmd) {
 		} else {
 			m.err = ""
 		}
-		return m, tea.Tick(500*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
+		iv := pollInterval(m.stats.Total)
+		return m, tea.Tick(iv, func(time.Time) tea.Msg { return tickMsg{} })
 	case tickMsg:
 		return m, fetchStatsCmd(m.client)
 	case ui.RefreshMsg:
