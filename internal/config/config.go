@@ -10,7 +10,6 @@ import (
 type Profile struct {
 	DSN      string `json:"dsn"`
 	ReadOnly bool   `json:"read_only,omitempty"`
-	TokenCmd string `json:"token_cmd,omitempty"`
 }
 
 type Config struct {
