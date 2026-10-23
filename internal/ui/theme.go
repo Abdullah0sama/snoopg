@@ -1,6 +1,10 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 type Theme struct {
 	Brand   lipgloss.Color
@@ -39,6 +43,7 @@ var (
 	BarEmptyStyle  lipgloss.Style
 	WarnStyle      lipgloss.Style
 	SelStyle       lipgloss.Style
+	ModeBarStyle   lipgloss.Style
 )
 
 func init() {
@@ -62,6 +67,7 @@ func SetTheme(t Theme) {
 	BarEmptyStyle = lipgloss.NewStyle().Foreground(t.Faint)
 	WarnStyle = lipgloss.NewStyle().Foreground(t.Warn)
 	SelStyle = lipgloss.NewStyle().Background(t.Brand).Foreground(t.OnBrand).Bold(true)
+	ModeBarStyle = lipgloss.NewStyle().Background(t.Brand).Foreground(t.OnBrand).Bold(true)
 }
 
 func Logo() string {
@@ -72,9 +78,32 @@ func FitWidth(s string, w int) string {
 	if w <= 0 {
 		return s
 	}
-	runes := []rune(s)
-	if len(runes) <= w {
+	if lipgloss.Width(s) <= w {
 		return s
 	}
-	return string(runes[:w])
+	runes := []rune(s)
+	var b strings.Builder
+	used := 0
+	for i := 0; i < len(runes); i++ {
+		if runes[i] == 0x1b {
+			// Copy the whole escape sequence verbatim (no visible width).
+			j := i
+			for j < len(runes) && runes[j] != 'm' {
+				j++
+			}
+			if j < len(runes) {
+				j++ // include the 'm'
+			}
+			b.WriteString(string(runes[i:j]))
+			i = j - 1
+			continue
+		}
+		if used >= w {
+			break
+		}
+		b.WriteRune(runes[i])
+		used++
+	}
+	b.WriteString("\x1b[0m")
+	return b.String()
 }

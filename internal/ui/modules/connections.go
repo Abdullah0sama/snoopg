@@ -24,16 +24,17 @@ type namedProfile struct {
 }
 
 type Connections struct {
-	client       *db.Client
-	profiles     []namedProfile
-	dbs          []string
-	currentLabel string
-	sel          int
-	form         bool
-	formName     string
-	formReadOnly bool
-	input        textinput.Model
-	err          string
+	client        *db.Client
+	profiles      []namedProfile
+	dbs           []string
+	currentLabel  string
+	sel           int
+	form          bool
+	formName      string
+	formReadOnly  bool
+	input         textinput.Model
+	confirmDelete string
+	err           string
 }
 
 func NewConnections(client *db.Client) *Connections {
@@ -65,6 +66,13 @@ type connTickMsg struct{}
 type connectResultMsg struct {
 	label string
 	err   error
+}
+
+// formConnectMsg validates a DSN entered in the profile form before saving.
+type formConnectMsg struct {
+	dsn      string
+	readOnly bool
+	err      error
 }
 
 func fetchConnCmd(c *db.Client) tea.Cmd {
@@ -117,6 +125,19 @@ func switchDbCmd(c *db.Client, database string) tea.Cmd {
 	}
 }
 
+func validateProfileCmd(dsn string, readOnly bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		client, err := db.NewWithMode(ctx, dsn, readOnly)
+		if err != nil {
+			return formConnectMsg{err: err}
+		}
+		client.Close()
+		return formConnectMsg{dsn: dsn, readOnly: readOnly}
+	}
+}
+
 func (m *Connections) Update(msg tea.Msg) (ui.Module, tea.Cmd) {
 	if m.form {
 		return m.updateForm(msg)
@@ -153,6 +174,20 @@ func (m *Connections) Update(msg tea.Msg) (ui.Module, tea.Cmd) {
 		m.err = ""
 		return m, func() tea.Msg { return ui.ProfileChangedMsg{Label: msg.label} }
 	case tea.KeyMsg:
+		if m.confirmDelete != "" {
+			switch msg.String() {
+			case "y":
+				name := m.confirmDelete
+				m.confirmDelete = ""
+				if err := config.Delete(name); err != nil {
+					m.err = err.Error()
+				}
+				return m, fetchConnCmd(m.client)
+			default: // any other key cancels
+				m.confirmDelete = ""
+				return m, nil
+			}
+		}
 		switch msg.String() {
 		case "up", "k":
 			if m.sel > 0 {
@@ -204,11 +239,9 @@ func (m *Connections) Update(msg tea.Msg) (ui.Module, tea.Cmd) {
 		case "d":
 			name, kind := m.entryAt(m.sel)
 			if kind == "profile" {
-				if err := config.Delete(name); err != nil {
-					m.err = err.Error()
-				}
-				return m, fetchConnCmd(m.client)
+				m.confirmDelete = name
 			}
+			return m, nil
 		case "m":
 			name, kind := m.entryAt(m.sel)
 			if kind == "profile" {
@@ -243,35 +276,38 @@ func (m *Connections) updateForm(msg tea.Msg) (ui.Module, tea.Cmd) {
 			if dsn == "" {
 				return m, nil
 			}
-			name := m.formName
-			if name == "" {
-				name = profileName(dsn)
-			}
-			if err := config.Save(name, dsn, m.formReadOnly); err != nil {
-				m.err = err.Error()
-				return m, nil
-			}
-			m.form = false
+			// Validate the connection before saving anything; on failure the
+			// form stays open so the DSN can be fixed and retried.
 			m.err = ""
-			return m, tea.Batch(connectProfileCmd(m.client, dsn, m.formReadOnly), fetchConnCmd(m.client))
+			return m, validateProfileCmd(dsn, m.formReadOnly)
 		default:
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
 			return m, cmd
 		}
-	case connectResultMsg:
+	case formConnectMsg:
+		if msg.err != nil {
+			m.err = msg.err.Error()
+			return m, nil
+		}
+		name := m.formName
+		if name == "" {
+			name = config.UniqueName(msg.dsn)
+		}
+		if err := config.Save(name, msg.dsn, msg.readOnly); err != nil {
+			m.err = err.Error()
+			return m, nil
+		}
+		m.form = false
 		m.err = ""
+		return m, tea.Batch(connectProfileCmd(m.client, msg.dsn, msg.readOnly), fetchConnCmd(m.client))
+	case connectResultMsg:
+		if msg.err != nil {
+			m.err = msg.err.Error()
+		}
 		return m, nil
 	}
 	return m, nil
-}
-
-func profileName(dsn string) string {
-	cfg, err := pgconn.ParseConfig(dsn)
-	if err == nil && cfg.Database != "" {
-		return cfg.Database
-	}
-	return "default"
 }
 
 func (m *Connections) entryCount() int {
@@ -346,6 +382,9 @@ func (m *Connections) View(width, height int) string {
 	}
 
 	lines = append(lines, ui.HintStyle.Render("enter: connect · n: new · e: edit · d: delete · m: read-only"))
+	if m.confirmDelete != "" {
+		lines = append(lines, ui.WarnStyle.Render("delete profile "+m.confirmDelete+"? (y/n)"))
+	}
 	if m.err != "" {
 		lines = append(lines, ui.ErrorStyle.Render(ui.FitWidth("error: "+m.err, innerW)))
 	}
@@ -378,7 +417,7 @@ func (m *Connections) formView(width, height, innerW int) string {
 		"",
 		ro,
 		"",
-		ui.HintStyle.Render("enter: save & connect · tab: toggle read-only · esc: cancel"),
+		ui.HintStyle.Render("enter: connect & save · tab: toggle read-only · esc: cancel"),
 	}
 	if m.err != "" {
 		lines = append(lines, ui.ErrorStyle.Render(ui.FitWidth("error: "+m.err, innerW)))

@@ -163,6 +163,7 @@ func main() {
 		os.Exit(1)
 	}
 	cfg.MaxConns = 4
+	cfg.ConnConfig.RuntimeParams["application_name"] = "snoopg-load"
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "snoopg-load: %v\n", err)

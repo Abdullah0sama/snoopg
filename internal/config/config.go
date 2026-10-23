@@ -2,9 +2,12 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type Profile struct {
@@ -13,8 +16,9 @@ type Profile struct {
 }
 
 type Config struct {
-	Last     string             `json:"last"`
+	Last     string             `json:"last,omitempty"`
 	Profiles map[string]Profile `json:"profiles"`
+	History  []string           `json:"history,omitempty"`
 }
 
 func Path() (string, error) {
@@ -44,6 +48,9 @@ func Load() (Config, error) {
 	}
 	if last, ok := raw["last"]; ok {
 		_ = json.Unmarshal(last, &cfg.Last)
+	}
+	if hist, ok := raw["history"]; ok {
+		_ = json.Unmarshal(hist, &cfg.History)
 	}
 	profiles := raw
 	if wrapped, ok := raw["profiles"]; ok {
@@ -98,6 +105,44 @@ func SetReadOnly(name string, readOnly bool) error {
 		cfg.Profiles[name] = p
 	}
 	return write(cfg)
+}
+
+func SaveHistory(entries []string) error {
+	cfg, err := Load()
+	if err != nil {
+		return err
+	}
+	cfg.History = entries
+	return write(cfg)
+}
+
+// NameFor derives a profile name from a DSN's database name.
+func NameFor(dsn string) string {
+	name := "default"
+	if cfg, err := pgconn.ParseConfig(dsn); err == nil && cfg.Database != "" {
+		name = cfg.Database
+	}
+	return name
+}
+
+// UniqueName returns a profile name derived from the DSN that does not
+// collide with an existing profile pointing at a different DSN. This avoids
+// silently overwriting a saved connection.
+func UniqueName(dsn string) string {
+	base := NameFor(dsn)
+	cfg, err := Load()
+	if err != nil {
+		return base
+	}
+	if p, ok := cfg.Profiles[base]; !ok || p.DSN == dsn {
+		return base
+	}
+	for i := 2; ; i++ {
+		cand := fmt.Sprintf("%s-%d", base, i)
+		if _, exists := cfg.Profiles[cand]; !exists {
+			return cand
+		}
+	}
 }
 
 func (c Config) Names() []string {

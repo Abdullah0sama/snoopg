@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"snoopg/internal/config"
 	"snoopg/internal/db"
 )
 
@@ -70,13 +71,17 @@ func NewApp(client *db.Client, mods []Module) tea.Model {
 	input := textinput.New()
 	input.Placeholder = "type a query, enter to run"
 	input.Focus()
-	return &app{
+	a := &app{
 		client:    client,
 		mods:      mods,
 		input:     input,
 		histIdx:   -1,
 		connLabel: labelFor(client.DSN()),
 	}
+	if cfg, err := config.Load(); err == nil {
+		a.hist = cfg.History
+	}
+	return a
 }
 
 func completionCmd(c *db.Client) tea.Cmd {
@@ -165,14 +170,13 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if a.showResults {
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
+		if k, ok := msg.(tea.KeyMsg); ok {
 			visible := a.resultsVisible()
 			maxOff := len(a.results.Rows) - visible
 			if maxOff < 0 {
 				maxOff = 0
 			}
-			switch msg.String() {
+			switch k.String() {
 			case "q", "ctrl+c":
 				return a, tea.Quit
 			case "j", "down":
@@ -183,11 +187,27 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if a.resOffset > 0 {
 					a.resOffset--
 				}
+			case "pgdown":
+				a.resOffset += visible
+				if a.resOffset > maxOff {
+					a.resOffset = maxOff
+				}
+			case "pgup":
+				a.resOffset -= visible
+				if a.resOffset < 0 {
+					a.resOffset = 0
+				}
+			case "g":
+				a.resOffset = 0
+			case "G":
+				a.resOffset = maxOff
 			default:
 				a.showResults = false
 			}
+			return a, nil
 		}
-		return a, nil
+		// Non-key messages fall through while the modal is open so module
+		// poll ticks keep being re-scheduled and new results can refresh it.
 	}
 
 	switch msg := msg.(type) {
@@ -197,10 +217,11 @@ func (a *app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var line string
 		if msg.err != nil {
 			line = fmt.Sprintf("%s %s — ERROR: %s", ts, q, truncate(msg.err.Error(), 80))
+			a.events = append(a.events, ErrorStyle.Render(truncate(line, 140)))
 		} else {
 			line = fmt.Sprintf("%s %s — %.1fs, %d rows", ts, q, msg.elapsed.Seconds(), msg.rowsAffected)
+			a.events = append(a.events, truncate(line, 140))
 		}
-		a.events = append(a.events, line)
 		if len(a.events) > 200 {
 			a.events = a.events[len(a.events)-200:]
 		}
@@ -483,6 +504,16 @@ func (a *app) View() string {
 	if contentH < 1 {
 		contentH = 1
 	}
+
+	// The input line can be taller than one row when autocomplete suggestions
+	// are visible; steal rows from the content area so the whole frame fits.
+	// One extra row is always left empty at the bottom: a frame that fills the
+	// last row of the terminal makes the alt screen scroll, hiding the header.
+	inputLines := strings.Count(a.input.View(), "\n") + 1
+	contentH -= inputLines
+	if contentH < 1 {
+		contentH = 1
+	}
 	leftW := a.width * 3 / 5
 	rightW := a.width - leftW - 1
 	if leftW < 8 {
@@ -556,6 +587,9 @@ func (a *app) View() string {
 	for i := start; i < len(a.events); i++ {
 		evLines = append(evLines, FitWidth(a.events[i], rightInnerW))
 	}
+	if !a.extOn && len(a.events) == 0 {
+		evLines = append(evLines, HintStyle.Render("queries you run are logged here"))
+	}
 	for len(evLines) < innerH {
 		evLines = append(evLines, "")
 	}
@@ -575,10 +609,25 @@ func (a *app) View() string {
 		}
 		inputLine = PromptStyle.Render(prompt) + a.input.View()
 	} else {
-		inputLine = HintStyle.Render("esc: focus query · j/k: select · e: watch · w: pick query · r: results · q: quit")
+		// Browse mode: a highlighted bar makes the mode change unmistakable,
+		// so keystrokes aren't accidentally read as hotkeys.
+		inputLine = ModeBarStyle.Width(a.width).Render(
+			"browse: esc: type query · j/k: select · e: watch · w: pick query · r: results · q: quit")
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, content, inputLine)
+	out := lipgloss.JoinVertical(lipgloss.Left, header, content, inputLine)
+	// Keep at most height-1 rows on screen; if a module overflows, trim its
+	// content area rather than the header or the input line.
+	if lines := strings.Split(out, "\n"); len(lines) > a.height-1 {
+		excess := len(lines) - (a.height - 1)
+		contentEnd := len(lines) - inputLines
+		keep := make([]string, 0, a.height-1)
+		keep = append(keep, lines[0])
+		keep = append(keep, lines[1:contentEnd-excess]...)
+		keep = append(keep, lines[contentEnd:]...)
+		out = strings.Join(keep, "\n")
+	}
+	return out
 }
 
 func truncate(s string, n int) string {
@@ -642,6 +691,7 @@ func (a *app) addHistory(query string) {
 		if len(a.hist) > 100 {
 			a.hist = a.hist[len(a.hist)-100:]
 		}
+		_ = config.SaveHistory(a.hist)
 	}
 	a.histIdx = -1
 }
@@ -697,7 +747,7 @@ func (a *app) resultsView() string {
 	if boxW < 40 {
 		boxW = 40
 	}
-	boxH := a.height - 1
+	boxH := a.height - 2
 	if boxH < 8 {
 		boxH = 8
 	}
@@ -754,7 +804,7 @@ func (a *app) resultsView() string {
 		lines = append(lines, HintStyle.Render(fmt.Sprintf("%d rows affected", a.results.RowsAffected)))
 	}
 
-	footer := HintStyle.Render("j/k: scroll · esc/enter: close · r: reopen")
+	footer := HintStyle.Render("j/k: scroll · pgup/pgdn: page · g/G: top/bottom · esc/enter: close · r: reopen")
 	box := PaneStyle.Width(boxW).Height(boxH - 2).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 	out := lipgloss.JoinVertical(lipgloss.Left, box, footer)
 	leftPad := (a.width - boxW) / 2
@@ -764,6 +814,10 @@ func (a *app) resultsView() string {
 			outLines[i] = strings.Repeat(" ", leftPad) + outLines[i]
 		}
 		out = strings.Join(outLines, "\n")
+	}
+	// Keep the last row of the terminal empty to avoid alt-screen scroll.
+	if lines := strings.Split(out, "\n"); len(lines) >= a.height {
+		out = strings.Join(lines[:a.height-1], "\n")
 	}
 	return out
 }

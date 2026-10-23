@@ -50,6 +50,13 @@ func (m *Plans) Update(msg tea.Msg) (ui.Module, tea.Cmd) {
 			}
 		case "down", "j":
 			m.offset++
+		case "pgup":
+			m.offset -= 10
+			if m.offset < 0 {
+				m.offset = 0
+			}
+		case "pgdn":
+			m.offset += 10
 		}
 	}
 	return m, nil
@@ -89,7 +96,7 @@ func (m *Plans) View(width, height int) string {
 	rootCost := m.plan.Plan.TotalCost
 	var allLines []string
 	allLines = append(allLines, renderNode(m.plan.Plan, "", true, true, rootCost, m.analyzed)...)
-	allLines = append(allLines, ui.HintStyle.Render("j/k: scroll"))
+	allLines = append(allLines, ui.HintStyle.Render("j/k: scroll · pgup/pgdn: page"))
 
 	visible := innerH - 1
 	if visible < 1 {

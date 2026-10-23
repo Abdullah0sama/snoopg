@@ -101,12 +101,17 @@ func (m *BufferCache) View(width, height int) string {
 
 	summary := ui.HintStyle.Render(fmt.Sprintf("%d pages · dirty %d · pinned %d · avg usage %.1f",
 		m.stats.Total, m.stats.Dirty, m.stats.Pinned, m.stats.AvgUsage))
+	if m.stats.Max > 0 {
+		pct := 100 * m.stats.Total / m.stats.Max
+		usage := ui.HintStyle.Render(fmt.Sprintf(" · %d%% used", pct))
+		if pct >= 90 {
+			usage = ui.WarnStyle.Render(fmt.Sprintf(" · %d%% used", pct))
+		}
+		summary += usage
+	}
 
 	lines := []string{ui.PaneTitleStyle.Render("BUFFER CACHE"), summary}
 	rows := innerH - 2
-	if rows > 18 {
-		rows = 18
-	}
 	if rows < 0 {
 		rows = 0
 	}

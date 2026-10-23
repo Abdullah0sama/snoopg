@@ -47,6 +47,7 @@ func buildPoolConfig(dsn string, readOnly bool) (*pgxpool.Config, error) {
 	if readOnly {
 		cfg.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
 	}
+	cfg.ConnConfig.RuntimeParams["application_name"] = "snoopg"
 	cfg.MaxConns = 4
 	return cfg, nil
 }

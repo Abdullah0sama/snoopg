@@ -133,11 +133,11 @@ func (m *Tables) Update(msg tea.Msg) (ui.Module, tea.Cmd) {
 				m.sel++
 			}
 			return m, nil
-		case "enter", "right":
+		case "enter", "right", " ":
 			if m.sel >= 0 && m.sel < len(lines) && lines[m.sel].root {
 				t := m.tables[lines[m.sel].tbl]
 				key := t.Schema + "." + t.Name
-				m.expanded[key] = true
+				m.expanded[key] = !m.expanded[key]
 			}
 			return m, nil
 		case "left":
@@ -221,7 +221,7 @@ func (m *Tables) View(width, height int) string {
 	if m.err != "" {
 		lines = append(lines, ui.ErrorStyle.Render(ui.FitWidth("error: "+m.err, innerW)))
 	}
-	lines = append(lines, ui.HintStyle.Render(ui.FitWidth("j/k: move · enter/→: expand · ←: collapse", innerW)))
+	lines = append(lines, ui.HintStyle.Render(ui.FitWidth("j/k: move · enter/space: toggle · ←: collapse", innerW)))
 
 	return ui.PaneStyle.Width(width).Height(height - 2).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }

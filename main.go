@@ -8,7 +8,6 @@ import (
 	"os/signal"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"snoopg/internal/config"
 	"snoopg/internal/db"
@@ -31,13 +30,6 @@ func resolveProfile(dsnFlag string) (dsn string, readOnly bool) {
 	return "", false
 }
 
-func profileName(dsn string) string {
-	if cfg, err := pgconn.ParseConfig(dsn); err == nil && cfg.Database != "" {
-		return cfg.Database
-	}
-	return "default"
-}
-
 func main() {
 	dsnFlag := flag.String("dsn", "", "PostgreSQL connection string")
 	flag.Parse()
@@ -58,7 +50,7 @@ func main() {
 			return
 		}
 		if save {
-			name := profileName(dsn)
+			name := config.UniqueName(dsn)
 			if err := config.Save(name, dsn, false); err != nil {
 				fmt.Fprintf(os.Stderr, "snoopg: could not save connection: %v\n", err)
 			} else {

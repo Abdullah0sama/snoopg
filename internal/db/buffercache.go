@@ -14,6 +14,7 @@ type RelationStat struct {
 
 type CacheStats struct {
 	Total    int
+	Max      int
 	Dirty    int
 	Pinned   int
 	AvgUsage float64
@@ -30,6 +31,9 @@ func (c *Client) CacheStats(ctx context.Context) (CacheStats, error) {
 	if err != nil {
 		return CacheStats{}, err
 	}
+	// shared_buffers is reported in 8kB pages, the same unit pg_buffercache counts.
+	_ = c.current().QueryRow(ctx,
+		`SELECT setting::bigint FROM pg_settings WHERE name = 'shared_buffers'`).Scan(&s.Max)
 	return s, nil
 }
 
@@ -45,7 +49,7 @@ func (c *Client) RelationStats(ctx context.Context) ([]RelationStat, error) {
 		WHERE d.datname = current_database()
 		GROUP BY c.relname
 		ORDER BY count(*) DESC
-		LIMIT 30`)
+		LIMIT 60`)
 	if err != nil {
 		return nil, err
 	}
