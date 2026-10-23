@@ -8,6 +8,8 @@ The main goal is to **debug a running instance by watching its internals react
 to your own queries**: type SQL, press enter, and see the buffer cache, WAL,
 locks, and page structures respond in real time.
 
+![snoopg: buffer cache with dirty pages, live external-query watch, and the shared query bar](screenshot.png)
+
 ## Concept
 
 snoopg is a shell with pluggable modules. Each module visualizes one subsystem
